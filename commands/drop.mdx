@@ -1,0 +1,450 @@
+---
+title: "geni drop"
+description: "Delete an existing database"
+---
+
+## Overview
+
+The `geni drop` command permanently deletes a database and all its data. This is useful for cleaning up development/test environments or removing old databases.
+
+<Warning>
+  **DESTRUCTIVE OPERATION**: This command permanently deletes the database and ALL its data. This action cannot be undone. Always backup important data before dropping a database.
+</Warning>
+
+## Usage
+
+```bash
+DATABASE_URL="<connection-string>" geni drop
+```
+
+## Database Support
+
+<Note>
+  Database dropping behavior varies by database type:
+  
+  - **PostgreSQL**: Drops the database from the server
+  - **MySQL**: Drops the database from the server
+  - **MariaDB**: Drops the database from the server
+  - **SQLite**: Deletes the database file from the filesystem
+  - **LibSQL/Turso**: Database should be deleted through the Turso CLI or web interface
+</Note>
+
+## Required Environment Variables
+
+<ParamField path="DATABASE_URL" type="string" required>
+  The database connection string. Specifies which database to drop.
+  
+  **Examples:**
+  - PostgreSQL: `postgres://user:password@localhost:5432/database_to_drop`
+  - MySQL: `mysql://root:password@localhost:3306/database_to_drop`
+  - MariaDB: `mariadb://root:password@localhost:3307/database_to_drop`
+  - SQLite: `sqlite://./database.sqlite`
+  - LibSQL: `https://localhost:6000`
+</ParamField>
+
+## Optional Environment Variables
+
+<ParamField path="DATABASE_TOKEN" type="string" default="none">
+  Authentication token for LibSQL/Turso databases.
+</ParamField>
+
+<ParamField path="DATABASE_MIGRATIONS_FOLDER" type="string" default="./migrations">
+  Path to the migrations folder (used for configuration).
+</ParamField>
+
+<ParamField path="DATABASE_MIGRATIONS_TABLE" type="string" default="schema_migrations">
+  Name of the migrations tracking table.
+</ParamField>
+
+<ParamField path="DATABASE_SCHEMA_FILE" type="string" default="schema.sql">
+  Schema file name.
+</ParamField>
+
+<ParamField path="DATABASE_WAIT_TIMEOUT" type="number" default="30">
+  Number of seconds to wait for the database server to be ready.
+</ParamField>
+
+## How It Works
+
+1. **Parse** the database URL to determine the database type and name
+2. **Connect** to the database server
+3. **Execute** the appropriate DROP DATABASE command
+4. **Verify** the database was dropped successfully
+
+## Examples
+
+### PostgreSQL
+
+```bash
+DATABASE_URL="postgres://postgres:password@localhost:5432/myapp_dev" geni drop
+```
+
+**Output:**
+```
+Success
+```
+
+### MySQL
+
+```bash
+DATABASE_URL="mysql://root:password@localhost:3306/myapp_test" geni drop
+```
+
+### MariaDB
+
+```bash
+DATABASE_URL="mariadb://root:password@localhost:3307/old_database" geni drop
+```
+
+### SQLite
+
+For SQLite, the database file is deleted:
+
+```bash
+DATABASE_URL="sqlite://./test.sqlite" geni drop
+```
+
+<Note>
+  For SQLite, `geni drop` removes the database file from the filesystem. The file is permanently deleted.
+</Note>
+
+### LibSQL/Turso
+
+For LibSQL and Turso, use the Turso CLI:
+
+```bash
+# Use Turso CLI instead
+turso db destroy myapp
+```
+
+<Warning>
+  Geni does not drop LibSQL/Turso databases. Use the Turso CLI or web interface to delete these databases.
+</Warning>
+
+## Safety Considerations
+
+<Warning>
+  **BEFORE dropping a database in production or with important data:**
+  
+  1. **Backup the database** first
+  2. **Verify you're targeting the correct database**
+  3. **Check with your team** before proceeding
+  4. **Consider archiving** instead of deleting
+  5. **Have a recovery plan** ready
+</Warning>
+
+### Pre-Drop Checklist
+
+```bash
+# 1. Verify database name
+echo $DATABASE_URL
+
+# 2. Check database contents
+DATABASE_URL="$DATABASE_URL" geni status
+
+# 3. Create backup (PostgreSQL example)
+pg_dump "$DATABASE_URL" > backup_$(date +%Y%m%d_%H%M%S).sql
+
+# 4. Only then drop
+DATABASE_URL="$DATABASE_URL" geni drop
+```
+
+## Common Use Cases
+
+### Clean Up Development Database
+
+```bash
+# Drop and recreate for fresh start
+DATABASE_URL="sqlite://./dev.sqlite" geni drop
+DATABASE_URL="sqlite://./dev.sqlite" geni create
+DATABASE_URL="sqlite://./dev.sqlite" geni up
+```
+
+### Reset Test Database
+
+```bash
+#!/bin/bash
+TEST_DB="postgres://localhost/myapp_test"
+
+# Drop existing test database
+DATABASE_URL="$TEST_DB" geni drop
+
+# Create fresh test database
+DATABASE_URL="$TEST_DB" geni create
+
+# Run migrations
+DATABASE_URL="$TEST_DB" geni up
+
+# Run tests
+npm test
+```
+
+### Remove Old Staging Database
+
+```bash
+# After moving to new staging environment
+DATABASE_URL="postgres://localhost/myapp_staging_old" geni drop
+```
+
+### Clean Up After Feature Branch
+
+```bash
+# Remove feature-specific database
+DATABASE_URL="sqlite://./feature_123.sqlite" geni drop
+```
+
+## CI/CD Integration
+
+### GitHub Actions - Clean Test Database
+
+```yaml
+steps:
+  - name: Drop existing test database
+    run: |
+      DATABASE_URL="postgres://postgres:password@localhost:5432/test_db" \
+      geni drop || true
+    continue-on-error: true
+  
+  - name: Create fresh database
+    run: |
+      DATABASE_URL="postgres://postgres:password@localhost:5432/test_db" \
+      geni create
+  
+  - name: Run migrations
+    run: |
+      DATABASE_URL="postgres://postgres:password@localhost:5432/test_db" \
+      geni up
+```
+
+### GitLab CI - Reset Between Tests
+
+```yaml
+variables:
+  DATABASE_URL: postgres://postgres:password@postgres:5432/test_db
+
+before_script:
+  - geni drop || true
+  - geni create
+  - geni up
+
+test:
+  script:
+    - npm test
+```
+
+## Docker Usage
+
+```bash
+docker run --rm -it --network=host \
+  -e DATABASE_URL="postgres://postgres:password@localhost:5432/myapp_dev" \
+  ghcr.io/emilpriver/geni:latest drop
+```
+
+## Error Handling
+
+### Database Doesn't Exist
+
+```
+Error: database "myapp" does not exist
+```
+
+**Solution**: The database was already dropped or never existed. No action needed.
+
+### Database In Use
+
+```
+Error: database "myapp" is being accessed by other users
+```
+
+**Solution**: Close all connections to the database first:
+
+**PostgreSQL:**
+```sql
+-- Disconnect all users
+SELECT pg_terminate_backend(pg_stat_activity.pid)
+FROM pg_stat_activity
+WHERE pg_stat_activity.datname = 'myapp'
+  AND pid <> pg_backend_pid();
+```
+
+**MySQL/MariaDB:**
+```bash
+# Kill connections
+mysqladmin -u root -p processlist
+mysqladmin -u root -p kill [process_id]
+```
+
+### Permission Denied
+
+```
+Error: must be owner of database myapp
+```
+
+**Solution**: Use a database user with DROP DATABASE permissions.
+
+### File Permission Error (SQLite)
+
+```
+Error: Permission denied (os error 13)
+```
+
+**Solution**: Ensure you have write permissions to the directory containing the SQLite file.
+
+## Automation Scripts
+
+### Reset Development Database
+
+```bash
+#!/bin/bash
+set -e
+
+DATABASE_URL="sqlite://./dev.sqlite"
+
+echo "Dropping database..."
+DATABASE_URL="$DATABASE_URL" geni drop || echo "Database didn't exist"
+
+echo "Creating fresh database..."
+DATABASE_URL="$DATABASE_URL" geni create
+
+echo "Running migrations..."
+DATABASE_URL="$DATABASE_URL" geni up
+
+echo "Database reset complete!"
+```
+
+### Make Commands
+
+```makefile
+.PHONY: db-drop
+db-drop:
+	@echo "Dropping database..."
+	@DATABASE_URL="$(DATABASE_URL)" geni drop
+
+.PHONY: db-reset
+db-reset: db-drop
+	@echo "Creating database..."
+	@DATABASE_URL="$(DATABASE_URL)" geni create
+	@echo "Running migrations..."
+	@DATABASE_URL="$(DATABASE_URL)" geni up
+	@echo "Database reset complete!"
+
+.PHONY: db-reset-test
+db-reset-test:
+	@DATABASE_URL="sqlite://./test.sqlite" $(MAKE) db-reset
+```
+
+### Python Script
+
+```python
+import os
+import subprocess
+
+def reset_database(db_url):
+    """Drop, create, and migrate database"""
+    env = os.environ.copy()
+    env['DATABASE_URL'] = db_url
+    
+    # Drop database (ignore errors if it doesn't exist)
+    subprocess.run(['geni', 'drop'], env=env, check=False)
+    
+    # Create fresh database
+    subprocess.run(['geni', 'create'], env=env, check=True)
+    
+    # Run migrations
+    subprocess.run(['geni', 'up'], env=env, check=True)
+    
+    print(f"Database reset complete: {db_url}")
+
+if __name__ == '__main__':
+    reset_database('sqlite://./test.sqlite')
+```
+
+## Production Safety
+
+<Warning>
+  **NEVER drop production databases** without extreme caution and proper authorization. Always:
+  
+  - Get written approval from stakeholders
+  - Create a complete backup
+  - Test the restore process
+  - Have a rollback plan
+  - Schedule during maintenance windows
+  - Communicate with the team
+</Warning>
+
+### Production Drop Safeguard
+
+```bash
+#!/bin/bash
+
+DATABASE_URL="$1"
+
+# Check if this looks like a production URL
+if [[ "$DATABASE_URL" == *"prod"* ]] || [[ "$DATABASE_URL" == *"production"* ]]; then
+    echo "WARNING: This appears to be a PRODUCTION database!"
+    echo "URL: $DATABASE_URL"
+    read -p "Type 'DELETE PRODUCTION DATABASE' to confirm: " confirmation
+    
+    if [ "$confirmation" != "DELETE PRODUCTION DATABASE" ]; then
+        echo "Aborted."
+        exit 1
+    fi
+fi
+
+echo "Dropping database..."
+DATABASE_URL="$DATABASE_URL" geni drop
+```
+
+## Best Practices
+
+- **Backup first**: Always backup before dropping
+- **Verify target**: Double-check you're dropping the correct database
+- **Use in tests**: Automate drop/create/migrate in test pipelines
+- **Avoid production**: Never drop production databases without extreme caution
+- **Handle errors**: Use `|| true` in scripts when the database might not exist
+- **Document process**: Keep runbooks for database operations
+- **Limit permissions**: Restrict DROP DATABASE permissions to administrators
+- **Prefer reset**: For development, drop + create + migrate is better than manual cleanup
+
+## Alternatives to Dropping
+
+Before dropping a database, consider alternatives:
+
+### Option 1: Rollback All Migrations
+
+```bash
+# Rollback all migrations instead of dropping
+DATABASE_URL="$DATABASE_URL" geni down -a 999
+```
+
+### Option 2: Truncate Tables
+
+```sql
+-- Remove data but keep structure
+TRUNCATE TABLE users CASCADE;
+TRUNCATE TABLE posts CASCADE;
+```
+
+### Option 3: Archive Database
+
+```bash
+# Rename instead of drop
+mv database.sqlite database_archived_$(date +%Y%m%d).sqlite
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Create Database" icon="database" href="/commands/create">
+    Create a new database with `geni create`
+  </Card>
+  <Card title="Run Migrations" icon="arrow-up" href="/commands/up">
+    Apply migrations with `geni up`
+  </Card>
+  <Card title="Check Status" icon="list-check" href="/commands/status">
+    View migration status with `geni status`
+  </Card>
+  <Card title="Rollback" icon="arrow-down" href="/commands/down">
+    Rollback migrations with `geni down`
+  </Card>
+</CardGroup>

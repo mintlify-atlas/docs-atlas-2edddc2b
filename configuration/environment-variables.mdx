@@ -1,0 +1,198 @@
+---
+title: Environment Variables
+description: Configure Geni using environment variables
+---
+
+Geni can be configured using environment variables to customize its behavior for different database environments and migration workflows.
+
+## Required Variables
+
+<ParamField path="DATABASE_URL" type="string" required>
+  The database connection string used for migrations. This is the only required environment variable.
+  
+  See [Database URLs](/configuration/database-urls) for format examples for each supported database.
+  
+  <Info>If `DATABASE_URL` is not set, Geni will exit with an error: "missing DATABASE_URL env variable"</Info>
+</ParamField>
+
+## Optional Variables
+
+### Migration Configuration
+
+<ParamField path="DATABASE_MIGRATIONS_FOLDER" type="string" default="./migrations">
+  Specifies the directory where Geni looks for migration files.
+  
+  <CodeGroup>
+  ```bash Default
+  # Migrations are read from ./migrations
+  geni up
+  ```
+  
+  ```bash Custom Folder
+  DATABASE_MIGRATIONS_FOLDER="./db/migrations" geni up
+  ```
+  </CodeGroup>
+</ParamField>
+
+<ParamField path="DATABASE_MIGRATIONS_TABLE" type="string" default="schema_migrations">
+  Name of the table used to track applied migrations.
+  
+  <CodeGroup>
+  ```bash Default
+  # Uses schema_migrations table
+  geni up
+  ```
+  
+  ```bash Custom Table
+  DATABASE_MIGRATIONS_TABLE="_migrations" geni up
+  ```
+  </CodeGroup>
+</ParamField>
+
+### Schema Dumping
+
+<ParamField path="DATABASE_SCHEMA_FILE" type="string" default="schema.sql">
+  Name of the schema file that Geni creates after running migrations.
+  
+  The schema file provides a complete SQL representation of your database structure, useful for version control and documentation.
+  
+  <CodeGroup>
+  ```bash Default
+  # Creates schema.sql
+  geni up
+  ```
+  
+  ```bash Custom File
+  DATABASE_SCHEMA_FILE="db/schema.sql" geni up
+  ```
+  </CodeGroup>
+</ParamField>
+
+<ParamField path="DATABASE_NO_DUMP_SCHEMA" type="boolean" default="false">
+  Disables automatic schema dumping after migrations.
+  
+  Set to `"true"` to prevent Geni from creating a schema file. Useful in environments where schema dumping is not needed or not supported.
+  
+  <CodeGroup>
+  ```bash Enable Schema Dumping (Default)
+  geni up
+  ```
+  
+  ```bash Disable Schema Dumping
+  DATABASE_NO_DUMP_SCHEMA="true" geni up
+  ```
+  </CodeGroup>
+  
+  <Note>
+  Schema dumping requires additional tools for some databases:
+  - **MySQL**: `mysqldump` binary
+  - **MariaDB**: `mariadb-dump` binary
+  - **PostgreSQL, SQLite, LibSQL**: No additional tools required
+  </Note>
+</ParamField>
+
+### Connection Configuration
+
+<ParamField path="DATABASE_WAIT_TIMEOUT" type="number" default="30">
+  Time in seconds to wait for the database to become available before timing out.
+  
+  Useful when running migrations in environments where the database might take time to start (e.g., Docker containers, CI/CD pipelines).
+  
+  <CodeGroup>
+  ```bash Default (30 seconds)
+  geni up
+  ```
+  
+  ```bash Custom Timeout
+  DATABASE_WAIT_TIMEOUT="60" geni up
+  ```
+  </CodeGroup>
+</ParamField>
+
+<ParamField path="DATABASE_TOKEN" type="string" optional>
+  Authentication token for LibSQL and Turso databases.
+  
+  Only required when connecting to LibSQL instances or Turso that require authentication. If not specified, Geni attempts to connect without authentication.
+  
+  <CodeGroup>
+  ```bash LibSQL with Token
+  DATABASE_URL="https://your-db.turso.io" \
+  DATABASE_TOKEN="your-auth-token" \
+  geni up
+  ```
+  
+  ```bash LibSQL without Token (Local)
+  DATABASE_URL="http://localhost:8080" geni up
+  ```
+  </CodeGroup>
+  
+  <Tip>
+  For Turso databases, retrieve your authentication token using the [Turso CLI](https://docs.turso.tech/cli) or from the Turso dashboard.
+  </Tip>
+</ParamField>
+
+## Complete Example
+
+Here's a complete example with all environment variables configured:
+
+```bash
+DATABASE_URL="postgres://user:pass@localhost:5432/myapp?sslmode=disable" \
+DATABASE_MIGRATIONS_FOLDER="./db/migrations" \
+DATABASE_MIGRATIONS_TABLE="_migrations" \
+DATABASE_SCHEMA_FILE="db/schema.sql" \
+DATABASE_WAIT_TIMEOUT="60" \
+geni up
+```
+
+## Using .env Files
+
+You can use `.env` files to manage environment variables:
+
+```bash .env
+DATABASE_URL=postgres://user:pass@localhost:5432/myapp?sslmode=disable
+DATABASE_MIGRATIONS_FOLDER=./db/migrations
+DATABASE_MIGRATIONS_TABLE=_migrations
+DATABASE_SCHEMA_FILE=db/schema.sql
+DATABASE_WAIT_TIMEOUT=60
+```
+
+Then load the file before running Geni:
+
+```bash
+source .env && geni up
+```
+
+<Warning>
+Never commit `.env` files containing sensitive credentials to version control. Add `.env` to your `.gitignore` file.
+</Warning>
+
+## CI/CD Usage
+
+In CI/CD environments, set `DATABASE_URL` as a secret environment variable:
+
+<CodeGroup>
+```yaml GitHub Actions
+name: Run Migrations
+on: [push]
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: emilpriver/geni@main
+        with:
+          database_url: ${{ secrets.DATABASE_URL }}
+          migrations_folder: "./migrations"
+          wait_timeout: "30"
+```
+
+```bash GitLab CI
+migrate:
+  script:
+    - geni up
+  variables:
+    DATABASE_URL: $DATABASE_URL
+    DATABASE_WAIT_TIMEOUT: "60"
+```
+</CodeGroup>

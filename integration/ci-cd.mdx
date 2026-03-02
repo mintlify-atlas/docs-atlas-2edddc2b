@@ -1,0 +1,164 @@
+---
+title: CI/CD Integration
+description: Use Geni in your continuous integration and deployment pipelines
+---
+
+Geni is designed to work seamlessly in CI/CD pipelines, allowing you to automate database migrations as part of your deployment process.
+
+## Quick Start
+
+In a CI/CD environment, set the `DATABASE_URL` environment variable and run:
+
+```bash
+geni up
+```
+
+This will apply all pending migrations to your database.
+
+## Environment Variables
+
+Configure Geni using environment variables in your CI/CD pipeline:
+
+<ParamField path="DATABASE_URL" type="string" required>
+  Database connection string. Required for all operations.
+  
+  **Examples:**
+  - PostgreSQL: `postgres://postgres@127.0.0.1:5432/app?sslmode=disable`
+  - MySQL: `mysql://root:password@localhost:3306/app`
+  - MariaDB: `mariadb://root:password@localhost:3307/app`
+  - SQLite: `sqlite://./database.sqlite`
+  - LibSQL/Turso: `https://localhost:6000`
+</ParamField>
+
+<ParamField path="DATABASE_TOKEN" type="string">
+  Authentication token for LibSQL/Turso databases. Only required when using Turso or LibSQL with authentication.
+</ParamField>
+
+<ParamField path="DATABASE_MIGRATIONS_FOLDER" type="string" default="./migrations">
+  Path to the directory containing migration files.
+</ParamField>
+
+<ParamField path="DATABASE_MIGRATIONS_TABLE" type="string" default="schema_migrations">
+  Name of the table used to track applied migrations.
+</ParamField>
+
+<ParamField path="DATABASE_WAIT_TIMEOUT" type="number" default="30">
+  Time in seconds to wait for database connection before timing out. Useful when databases need time to boot.
+</ParamField>
+
+<ParamField path="DATABASE_SCHEMA_FILE" type="string" default="schema.sql">
+  Name of the schema dump file generated after migrations.
+</ParamField>
+
+<ParamField path="DATABASE_NO_DUMP_SCHEMA" type="boolean" default="false">
+  Set to `true` to disable automatic schema dumping after migrations.
+</ParamField>
+
+## Common Pipeline Patterns
+
+### Basic Migration
+
+The simplest CI/CD integration runs migrations before deploying your application:
+
+```bash
+# Set your database URL from secrets
+export DATABASE_URL="$DB_CONNECTION_STRING"
+
+# Run migrations
+geni up
+
+# Deploy your application
+./deploy.sh
+```
+
+### With Database Token (Turso/LibSQL)
+
+For LibSQL or Turso databases requiring authentication:
+
+```bash
+export DATABASE_URL="https://my-db.turso.io"
+export DATABASE_TOKEN="$TURSO_AUTH_TOKEN"
+
+geni up
+```
+
+### Custom Migration Folder
+
+If your migrations are in a non-standard location:
+
+```bash
+export DATABASE_URL="$DB_CONNECTION_STRING"
+export DATABASE_MIGRATIONS_FOLDER="./db/migrations"
+
+geni up
+```
+
+### With Wait Timeout
+
+When your database needs time to initialize (useful in container environments):
+
+```bash
+export DATABASE_URL="$DB_CONNECTION_STRING"
+export DATABASE_WAIT_TIMEOUT="60"
+
+geni up
+```
+
+## Security Best Practices
+
+<Steps>
+  <Step title="Use Secret Management">
+    Always store `DATABASE_URL` and `DATABASE_TOKEN` in your CI/CD platform's secret management system. Never commit these values to version control.
+  </Step>
+  
+  <Step title="Limit Database Permissions">
+    Use a database user with only the necessary permissions for running migrations. Avoid using root or admin credentials.
+  </Step>
+  
+  <Step title="Review Migration Files">
+    Ensure migration files are reviewed and tested before running in production environments.
+  </Step>
+  
+  <Step title="Use Read-Only Replicas">
+    Point your application to read replicas while migrations run on the primary database to minimize downtime.
+  </Step>
+</Steps>
+
+## Platform-Specific Examples
+
+For detailed integration guides with specific CI/CD platforms:
+
+<CardGroup cols={2}>
+  <Card title="GitHub Actions" icon="github" href="/integration/github-actions">
+    Use Geni in GitHub Actions workflows
+  </Card>
+  <Card title="Docker" icon="docker" href="/integration/docker">
+    Run Geni in Docker containers
+  </Card>
+</CardGroup>
+
+## Rollback in CI/CD
+
+If you need to rollback migrations in your pipeline:
+
+```bash
+# Rollback last migration
+geni down
+
+# Rollback multiple migrations
+geni down -a 3
+```
+
+<Warning>
+  Rollbacks should be used carefully in production environments. Always test rollback procedures in staging first.
+</Warning>
+
+## Checking Migration Status
+
+Before applying migrations, you can check which migrations are pending:
+
+```bash
+geni status
+```
+
+This is useful for logging and validation in your pipeline.

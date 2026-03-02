@@ -1,0 +1,314 @@
+---
+title: Database URLs
+description: Connection string formats for all supported databases
+---
+
+Geni uses the `DATABASE_URL` environment variable to connect to your database. The format varies depending on the database type.
+
+## PostgreSQL
+
+PostgreSQL supports multiple URL schemes: `postgres://`, `postgresql://`, or `psql://`
+
+### Format
+
+```
+postgres://[user[:password]@][host][:port][/database][?options]
+```
+
+### Examples
+
+<CodeGroup>
+```bash Local Development
+DATABASE_URL="postgres://postgres@127.0.0.1:5432/app?sslmode=disable"
+```
+
+```bash With Password
+DATABASE_URL="postgres://postgres:mysecretpassword@localhost:5432/myapp?sslmode=disable"
+```
+
+```bash Production with SSL
+DATABASE_URL="postgresql://user:pass@db.example.com:5432/production?sslmode=require"
+```
+
+```bash Unix Socket
+DATABASE_URL="postgres://user@/dbname?host=/var/run/postgresql"
+```
+</CodeGroup>
+
+### Common Options
+
+- `sslmode` - SSL mode (disable, require, verify-ca, verify-full)
+- `connect_timeout` - Connection timeout in seconds
+- `application_name` - Application name for connection tracking
+
+## MySQL
+
+MySQL uses the `mysql://` scheme.
+
+### Format
+
+```
+mysql://[user[:password]@][host][:port][/database][?options]
+```
+
+### Examples
+
+<CodeGroup>
+```bash Local Development
+DATABASE_URL="mysql://root:password@localhost:3306/app"
+```
+
+```bash Production
+DATABASE_URL="mysql://appuser:secret@mysql.example.com:3306/production"
+```
+
+```bash With Options
+DATABASE_URL="mysql://user:pass@localhost:3306/db?charset=utf8mb4"
+```
+</CodeGroup>
+
+### Common Options
+
+- `charset` - Character set (utf8mb4 recommended)
+- `parseTime` - Parse DATE and DATETIME to time.Time
+- `loc` - Location for time.Time values
+
+<Note>
+The default port for MySQL is `3306`.
+</Note>
+
+## MariaDB
+
+MariaDB uses the `mariadb://` scheme and has a similar format to MySQL.
+
+### Format
+
+```
+mariadb://[user[:password]@][host][:port][/database][?options]
+```
+
+### Examples
+
+<CodeGroup>
+```bash Local Development
+DATABASE_URL="mariadb://root:password@localhost:3307/app"
+```
+
+```bash Production
+DATABASE_URL="mariadb://appuser:secret@mariadb.example.com:3306/production"
+```
+
+```bash With Options
+DATABASE_URL="mariadb://user:pass@localhost:3307/db?charset=utf8mb4"
+```
+</CodeGroup>
+
+<Tip>
+While MariaDB is MySQL-compatible, using the `mariadb://` scheme ensures optimal compatibility with MariaDB-specific features.
+</Tip>
+
+## SQLite
+
+SQLite uses file-based databases with the `sqlite://` or `sqlite3://` scheme.
+
+### Format
+
+```
+sqlite://[path/to/database.sqlite]
+```
+
+### Examples
+
+<CodeGroup>
+```bash Relative Path
+DATABASE_URL="sqlite://./database.sqlite"
+```
+
+```bash Absolute Path
+DATABASE_URL="sqlite:///var/lib/app/database.sqlite"
+```
+
+```bash Current Directory
+DATABASE_URL="sqlite://database.db"
+```
+
+```bash Temporary Database
+DATABASE_URL="sqlite://temp.sqlite"
+```
+</CodeGroup>
+
+<Info>
+If the SQLite database file doesn't exist, Geni will automatically create it when running migrations or using `geni create`.
+</Info>
+
+### Path Guidelines
+
+- Use `./` prefix for relative paths: `sqlite://./data/app.db`
+- Use `/` prefix for absolute paths: `sqlite:///home/user/app.db`
+- Geni creates parent directories automatically if they don't exist
+
+## LibSQL
+
+LibSQL (including Turso) uses HTTP/HTTPS protocols for remote databases.
+
+### Format
+
+```
+http://[host][:port]
+https://[host][:port]
+libsql://[host][:port]
+```
+
+### Examples
+
+<CodeGroup>
+```bash Local LibSQL Server
+DATABASE_URL="http://localhost:8080"
+```
+
+```bash Turso Database
+DATABASE_URL="https://your-db-name.turso.io"
+DATABASE_TOKEN="your-auth-token"
+```
+
+```bash LibSQL with Custom Port
+DATABASE_URL="http://localhost:6000"
+```
+
+```bash LibSQL Scheme
+DATABASE_URL="libsql://your-db.turso.io"
+DATABASE_TOKEN="your-auth-token"
+```
+</CodeGroup>
+
+### Authentication
+
+LibSQL and Turso databases often require authentication. Set the `DATABASE_TOKEN` environment variable:
+
+```bash
+DATABASE_URL="https://my-database.turso.io" \
+DATABASE_TOKEN="eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9..." \
+geni up
+```
+
+<Tip>
+Retrieve your Turso authentication token using:
+```bash
+turso db tokens create [database-name]
+```
+</Tip>
+
+<Note>
+- Local LibSQL servers typically use HTTP (`http://localhost:8080`)
+- Turso databases always use HTTPS (`https://`)
+- If `DATABASE_TOKEN` is not set, Geni attempts to connect without authentication
+</Note>
+
+## URL Encoding
+
+Special characters in passwords must be URL-encoded:
+
+| Character | Encoded |
+|-----------|----------|
+| `@` | `%40` |
+| `:` | `%3A` |
+| `/` | `%2F` |
+| `?` | `%3F` |
+| `#` | `%23` |
+| `&` | `%26` |
+| `=` | `%3D` |
+| `+` | `%2B` |
+| ` ` (space) | `%20` |
+
+### Example
+
+If your password is `p@ssw0rd!`, encode it as:
+
+```bash
+DATABASE_URL="postgres://user:p%40ssw0rd!@localhost:5432/db"
+```
+
+## Testing Database URLs
+
+Here are the database URLs used in Geni's integration tests:
+
+<CodeGroup>
+```bash PostgreSQL
+DATABASE_URL="postgres://postgres:mysecretpassword@localhost:6437/development?sslmode=disable"
+```
+
+```bash MySQL
+DATABASE_URL="mysql://root:password@localhost:3306/app"
+```
+
+```bash MariaDB
+DATABASE_URL="mariadb://root:password@localhost:3307/app"
+```
+
+```bash SQLite
+DATABASE_URL="sqlite://temp.sqlite"
+```
+
+```bash LibSQL
+DATABASE_URL="http://localhost:6000"
+```
+</CodeGroup>
+
+## Troubleshooting
+
+### Connection Failed
+
+<AccordionGroup>
+  <Accordion title="Database not found">
+    Ensure the database exists. Use `geni create` to create it (works for PostgreSQL, MySQL, and MariaDB):
+    
+    ```bash
+    DATABASE_URL="postgres://user:pass@localhost:5432/mydb" geni create
+    ```
+  </Accordion>
+  
+  <Accordion title="Authentication failed">
+    - Verify username and password are correct
+    - Check for special characters that need URL encoding
+    - For LibSQL/Turso, ensure `DATABASE_TOKEN` is set correctly
+  </Accordion>
+  
+  <Accordion title="Connection timeout">
+    - Verify the host and port are correct
+    - Check if the database server is running
+    - Increase `DATABASE_WAIT_TIMEOUT` if the database is slow to start
+    
+    ```bash
+    DATABASE_WAIT_TIMEOUT="60" geni up
+    ```
+  </Accordion>
+  
+  <Accordion title="SSL/TLS errors (PostgreSQL)">
+    For local development, disable SSL:
+    
+    ```bash
+    DATABASE_URL="postgres://user@localhost:5432/db?sslmode=disable"
+    ```
+    
+    For production, use appropriate SSL mode:
+    - `sslmode=require` - Require SSL
+    - `sslmode=verify-ca` - Verify certificate authority
+    - `sslmode=verify-full` - Verify certificate and hostname
+  </Accordion>
+</AccordionGroup>
+
+## Supported URL Schemes
+
+Geni recognizes the following URL schemes for database detection:
+
+| Database | Supported Schemes |
+|----------|-------------------|
+| PostgreSQL | `postgres://`, `postgresql://`, `psql://` |
+| MySQL | `mysql://` |
+| MariaDB | `mariadb://` |
+| SQLite | `sqlite://`, `sqlite3://` |
+| LibSQL/Turso | `http://`, `https://`, `libsql://` |
+
+<Warning>
+URL schemes are **case-sensitive**. Always use lowercase schemes (e.g., `postgres://`, not `POSTGRES://`).
+</Warning>

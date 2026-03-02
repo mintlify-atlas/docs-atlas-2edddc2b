@@ -1,0 +1,314 @@
+---
+title: 'Installation'
+description: 'Install Geni using your preferred package manager or distribution method'
+---
+
+Geni can be installed using multiple methods depending on your platform and preferences. Choose the installation method that works best for your environment.
+
+## Quick Install
+
+<CardGroup cols={2}>
+  <Card title="macOS" icon="apple">
+    ```bash
+    brew install geni
+    ```
+  </Card>
+  <Card title="Rust Developers" icon="rust">
+    ```bash
+    cargo install geni
+    ```
+  </Card>
+</CardGroup>
+
+## Installation Methods
+
+<Tabs>
+  <Tab title="Homebrew">
+    ### Homebrew (macOS & Linux)
+
+    The easiest way to install Geni on macOS or Linux with Homebrew:
+
+    ```bash
+    brew install geni
+    ```
+
+    Verify the installation:
+
+    ```bash
+    geni --version
+    ```
+
+    <Tip>
+    Homebrew automatically adds Geni to your PATH and handles updates via `brew upgrade geni`.
+    </Tip>
+  </Tab>
+
+  <Tab title="GitHub Releases">
+    ### GitHub Releases (Linux)
+
+    Download the latest binary directly from GitHub releases:
+
+    ```bash
+    sudo curl -fsSL -o /usr/local/bin/geni \
+      https://github.com/emilpriver/geni/releases/latest/download/geni-linux-amd64
+    sudo chmod +x /usr/local/bin/geni
+    ```
+
+    Verify the installation:
+
+    ```bash
+    geni --version
+    ```
+
+    <Note>
+    Pre-built binaries are available for Linux AMD64 architecture. For other platforms, consider using Cargo or Docker.
+    </Note>
+  </Tab>
+
+  <Tab title="Cargo">
+    ### Cargo (All Platforms)
+
+    If you have Rust installed, you can build and install Geni from source:
+
+    ```bash
+    cargo install geni
+    ```
+
+    This will compile Geni from source and install it to `~/.cargo/bin/`. Make sure this directory is in your PATH.
+
+    Verify the installation:
+
+    ```bash
+    geni --version
+    ```
+
+    <Tip>
+    Installing via Cargo ensures you get the latest version optimized for your specific platform.
+    </Tip>
+  </Tab>
+
+  <Tab title="Docker">
+    ### Docker
+
+    Geni provides official Docker images published to GitHub Container Registry.
+
+    #### Standard Image
+
+    The standard image includes all database client tools (pg_dump, mysqldump, etc.) for schema dumping:
+
+    ```bash
+    docker run --rm -it --network=host ghcr.io/emilpriver/geni:latest --help
+    ```
+
+    #### Slim Image
+
+    The slim image is smaller but doesn't include database client tools. Schema dumping will be disabled:
+
+    ```bash
+    docker run --rm -it --network=host ghcr.io/emilpriver/geni:latest-slim --help
+    ```
+
+    <Warning>
+    The slim image won't attempt to dump the database schema. Use the standard image if you need schema.sql generation.
+    </Warning>
+
+    #### Using Docker with Migrations
+
+    To create or apply migrations, use Docker's bind mount feature to make your local migrations directory available:
+
+    ```bash
+    # Create a new migration
+    docker run --rm -it --network=host \
+      -v "$(pwd)/migrations:/migrations" \
+      ghcr.io/emilpriver/geni:latest new create_users_table
+
+    # Run migrations
+    docker run --rm -it --network=host \
+      -v "$(pwd)/migrations:/migrations" \
+      -e DATABASE_URL="postgres://user:pass@localhost/db" \
+      ghcr.io/emilpriver/geni:latest up
+    ```
+
+    <Tip>
+    The `--network=host` flag allows the container to access services running on your host machine (like local databases).
+    </Tip>
+  </Tab>
+
+  <Tab title="Nix">
+    ### Nix Flake
+
+    Run Geni directly using Nix without installation:
+
+    ```bash
+    nix run github:emilpriver/geni -- up
+    ```
+
+    You can also run other commands:
+
+    ```bash
+    # Create a new migration
+    nix run github:emilpriver/geni -- new create_users
+
+    # Check status
+    nix run github:emilpriver/geni -- status
+    ```
+
+    <Note>
+    This method doesn't require installation and always fetches the latest version from GitHub.
+    </Note>
+  </Tab>
+
+  <Tab title="PKGX">
+    ### PKGX
+
+    Run Geni using [PKGX](https://pkgx.sh/) without installation:
+
+    ```bash
+    pkgx geni up
+    ```
+
+    PKGX will automatically fetch and run the appropriate version:
+
+    ```bash
+    # Create a migration
+    pkgx geni new add_email_column
+
+    # Check migration status
+    pkgx geni status
+    ```
+
+    <Tip>
+    PKGX is great for trying out Geni or using it in environments where you can't install packages.
+    </Tip>
+  </Tab>
+</Tabs>
+
+## Verify Installation
+
+After installation, verify that Geni is working correctly:
+
+<Steps>
+  <Step title="Check Version">
+    Run the version command to ensure Geni is installed:
+
+    ```bash
+    geni --version
+    ```
+
+    You should see output like:
+    ```
+    geni v1.1.9
+    ```
+  </Step>
+
+  <Step title="View Help">
+    Display available commands:
+
+    ```bash
+    geni --help
+    ```
+
+    This will show all available subcommands:
+    ```
+    A standalone database CLI migration tool
+
+    Usage: geni <COMMAND>
+
+    Commands:
+      new     Create new migration
+      up      Migrate to the latest version
+      down    Rollback to last migration
+      create  Create database
+      drop    Drop database
+      status  Show current migrations to apply
+      dump    Dump database structure
+      help    Print this message or the help of the given subcommand(s)
+    ```
+  </Step>
+
+  <Step title="Test with SQLite">
+    Create a test migration with SQLite (no database setup required):
+
+    ```bash
+    mkdir test-geni && cd test-geni
+    DATABASE_URL="sqlite://./test.db" geni new test_migration
+    ```
+
+    You should see:
+    ```
+    Created migration: migrations/20240302120000_test_migration.up.sql
+    Created migration: migrations/20240302120000_test_migration.down.sql
+    ```
+  </Step>
+</Steps>
+
+## Next Steps
+
+Now that you have Geni installed:
+
+<CardGroup cols={2}>
+  <Card
+    title="Quickstart Tutorial"
+    icon="rocket"
+    href="/quickstart"
+  >
+    Follow a hands-on tutorial to create and run your first migration
+  </Card>
+  <Card
+    title="Configuration"
+    icon="gear"
+    href="/configuration/environment-variables"
+  >
+    Learn about environment variables and configuration options
+  </Card>
+  <Card
+    title="Commands Reference"
+    icon="terminal"
+    href="/commands/new"
+  >
+    Explore all available Geni commands and their options
+  </Card>
+  <Card
+    title="Database Setup"
+    icon="database"
+    href="/databases/postgres"
+  >
+    Configure Geni for your specific database system
+  </Card>
+</CardGroup>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Geni command not found">
+    If you installed via Cargo, ensure `~/.cargo/bin` is in your PATH:
+
+    ```bash
+    export PATH="$HOME/.cargo/bin:$PATH"
+    ```
+
+    Add this to your `~/.bashrc` or `~/.zshrc` to make it permanent.
+  </Accordion>
+
+  <Accordion title="Permission denied on Linux">
+    If you downloaded from GitHub releases and get permission errors:
+
+    ```bash
+    sudo chmod +x /usr/local/bin/geni
+    ```
+
+    Ensure you have write permissions to `/usr/local/bin/` or install to a user directory.
+  </Accordion>
+
+  <Accordion title="Docker: Cannot connect to database">
+    When running in Docker, use `--network=host` to access host databases:
+
+    ```bash
+    docker run --rm -it --network=host \
+      -e DATABASE_URL="postgres://localhost/db" \
+      ghcr.io/emilpriver/geni:latest up
+    ```
+
+    Or use the container's gateway IP to reach the host.
+  </Accordion>
+</AccordionGroup>

@@ -1,0 +1,390 @@
+---
+title: "geni create"
+description: "Create a new database for your application"
+---
+
+## Overview
+
+The `geni create` command creates a new database. This is useful for setting up fresh development, staging, or production environments.
+
+## Usage
+
+```bash
+DATABASE_URL="<connection-string>" geni create
+```
+
+## Database Support
+
+<Note>
+  Database creation behavior varies by database type:
+  
+  - **PostgreSQL**: Creates a new database
+  - **MySQL**: Creates a new database
+  - **MariaDB**: Creates a new database
+  - **SQLite**: Creates the database file (also happens automatically during migrations)
+  - **LibSQL/Turso**: Database should be created through the Turso CLI or web interface
+</Note>
+
+## Required Environment Variables
+
+<ParamField path="DATABASE_URL" type="string" required>
+  The database connection string. The format determines which database system to use.
+  
+  **Connection String Formats:**
+  
+  For PostgreSQL, MySQL, and MariaDB, connect to the server without specifying a database name, or use a default database:
+  
+  - PostgreSQL: `postgres://user:password@localhost:5432/postgres`
+  - MySQL: `mysql://root:password@localhost:3306/`
+  - MariaDB: `mariadb://root:password@localhost:3307/`
+  - SQLite: `sqlite://./database.sqlite`
+  - LibSQL: `https://localhost:6000`
+</ParamField>
+
+## Optional Environment Variables
+
+<ParamField path="DATABASE_TOKEN" type="string" default="none">
+  Authentication token for LibSQL/Turso databases. Required for authenticated Turso instances.
+</ParamField>
+
+<ParamField path="DATABASE_MIGRATIONS_FOLDER" type="string" default="./migrations">
+  Path to the migrations folder (used for configuration, but migrations are not run during create).
+</ParamField>
+
+<ParamField path="DATABASE_MIGRATIONS_TABLE" type="string" default="schema_migrations">
+  Name of the migrations tracking table (created when migrations are first run).
+</ParamField>
+
+<ParamField path="DATABASE_SCHEMA_FILE" type="string" default="schema.sql">
+  Schema file name (used during migrations, not during database creation).
+</ParamField>
+
+<ParamField path="DATABASE_WAIT_TIMEOUT" type="number" default="30">
+  Number of seconds to wait for the database server to be ready.
+</ParamField>
+
+## How It Works
+
+1. **Parse** the database URL to determine the database type
+2. **Connect** to the database server
+3. **Execute** the appropriate CREATE DATABASE command
+4. **Verify** the database was created successfully
+
+## Examples
+
+### PostgreSQL
+
+```bash
+# Connect to default 'postgres' database to create 'myapp'
+DATABASE_URL="postgres://postgres:password@localhost:5432/myapp" geni create
+```
+
+**Output:**
+```
+Success
+```
+
+### MySQL
+
+```bash
+DATABASE_URL="mysql://root:password@localhost:3306/myapp" geni create
+```
+
+### MariaDB
+
+```bash
+DATABASE_URL="mariadb://root:password@localhost:3307/myapp" geni create
+```
+
+### SQLite
+
+For SQLite, the database file is created automatically:
+
+```bash
+DATABASE_URL="sqlite://./database.sqlite" geni create
+```
+
+<Note>
+  SQLite databases are automatically created when you run `geni up` if the file doesn't exist. The `create` command is optional for SQLite.
+</Note>
+
+### LibSQL/Turso
+
+For LibSQL and Turso, create the database using the Turso CLI:
+
+```bash
+# Use Turso CLI instead
+turso db create myapp
+turso db show myapp
+
+# Then use with Geni
+DATABASE_URL="https://myapp-user.turso.io" \
+DATABASE_TOKEN="your-token" \
+geni up
+```
+
+<Warning>
+  Geni does not create LibSQL/Turso databases. Use the Turso CLI or web interface to create these databases.
+</Warning>
+
+## Complete Setup Workflow
+
+Typical workflow for setting up a new environment:
+
+```bash
+# 1. Create the database
+DATABASE_URL="postgres://postgres:password@localhost:5432/myapp" geni create
+
+# 2. Run migrations
+DATABASE_URL="postgres://postgres:password@localhost:5432/myapp" geni up
+
+# 3. Verify
+DATABASE_URL="postgres://postgres:password@localhost:5432/myapp" geni status
+```
+
+## Docker Usage
+
+```bash
+docker run --rm -it --network=host \
+  -e DATABASE_URL="postgres://postgres:password@localhost:5432/myapp" \
+  ghcr.io/emilpriver/geni:latest create
+```
+
+## Development Setup
+
+### Local PostgreSQL
+
+```bash
+# Create database
+DATABASE_URL="postgres://localhost/myapp_dev" geni create
+
+# Create test database
+DATABASE_URL="postgres://localhost/myapp_test" geni create
+```
+
+### Local MySQL
+
+```bash
+DATABASE_URL="mysql://root@localhost:3306/myapp_dev" geni create
+```
+
+### SQLite for Development
+
+```bash
+# Development database
+DATABASE_URL="sqlite://./dev.sqlite" geni create
+
+# Test database
+DATABASE_URL="sqlite://./test.sqlite" geni create
+```
+
+## CI/CD Integration
+
+### GitHub Actions
+
+```yaml
+steps:
+  - name: Start PostgreSQL
+    run: |
+      docker run -d \
+        -e POSTGRES_PASSWORD=password \
+        -p 5432:5432 \
+        postgres:15
+  
+  - name: Wait for PostgreSQL
+    run: sleep 5
+  
+  - name: Create database
+    run: |
+      DATABASE_URL="postgres://postgres:password@localhost:5432/test_db" \
+      geni create
+  
+  - name: Run migrations
+    run: |
+      DATABASE_URL="postgres://postgres:password@localhost:5432/test_db" \
+      geni up
+```
+
+### GitLab CI
+
+```yaml
+services:
+  - postgres:15
+
+variables:
+  POSTGRES_DB: test_db
+  POSTGRES_PASSWORD: password
+  DATABASE_URL: postgres://postgres:password@postgres:5432/test_db
+
+test:
+  script:
+    - geni create
+    - geni up
+    - npm test
+```
+
+### Docker Compose
+
+```yaml
+version: '3.8'
+
+services:
+  db:
+    image: postgres:15
+    environment:
+      POSTGRES_PASSWORD: password
+    ports:
+      - "5432:5432"
+  
+  migrate:
+    image: ghcr.io/emilpriver/geni:latest
+    depends_on:
+      - db
+    environment:
+      DATABASE_URL: postgres://postgres:password@db:5432/myapp
+      DATABASE_WAIT_TIMEOUT: 30
+    command: sh -c "sleep 5 && geni create && geni up"
+    volumes:
+      - ./migrations:/migrations
+```
+
+## Error Handling
+
+### Database Already Exists
+
+```
+Error: database "myapp" already exists
+```
+
+**Solution**: The database is already created. You can proceed to run migrations with `geni up`.
+
+### Connection Failed
+
+```
+No database url found, please set the DATABASE_URL environment variable
+```
+
+**Solution**: Set the `DATABASE_URL` environment variable.
+
+### Permission Denied
+
+```
+Error: permission denied to create database
+```
+
+**Solution**: Ensure the database user has CREATE DATABASE permissions:
+
+```sql
+-- PostgreSQL
+ALTER USER myuser CREATEDB;
+
+-- MySQL/MariaDB
+GRANT ALL PRIVILEGES ON *.* TO 'myuser'@'localhost';
+```
+
+### Server Not Running
+
+```
+Error: could not connect to server
+```
+
+**Solution**: 
+1. Ensure the database server is running
+2. Check the connection string
+3. Verify network connectivity
+4. Increase `DATABASE_WAIT_TIMEOUT` if server is starting up
+
+## Database Naming Conventions
+
+Follow these conventions for database names:
+
+- **Development**: `myapp_dev` or `myapp_development`
+- **Test**: `myapp_test`
+- **Staging**: `myapp_staging`
+- **Production**: `myapp` or `myapp_production`
+
+## Best Practices
+
+- **Separate environments**: Use different databases for dev, test, staging, and production
+- **Name consistently**: Follow a naming convention across projects
+- **Automate creation**: Include database creation in setup scripts
+- **Check before creating**: Verify the database doesn't exist to avoid errors
+- **Use in CI**: Create fresh test databases in CI/CD pipelines
+- **Document requirements**: Note any special permissions needed
+- **Version control**: Store database creation steps in documentation
+
+## Checking if Database Exists
+
+Before creating, you can check if a database exists:
+
+### PostgreSQL
+
+```bash
+psql -U postgres -lqt | cut -d \| -f 1 | grep -qw myapp && echo "exists" || echo "does not exist"
+```
+
+### MySQL/MariaDB
+
+```bash
+mysql -u root -p -e "SHOW DATABASES LIKE 'myapp';" | grep -q myapp && echo "exists" || echo "does not exist"
+```
+
+### SQLite
+
+```bash
+test -f ./database.sqlite && echo "exists" || echo "does not exist"
+```
+
+## Automation Scripts
+
+### Bash Setup Script
+
+```bash
+#!/bin/bash
+set -e
+
+DATABASE_URL="postgres://postgres:password@localhost:5432/myapp"
+
+echo "Creating database..."
+DATABASE_URL="$DATABASE_URL" geni create || echo "Database already exists"
+
+echo "Running migrations..."
+DATABASE_URL="$DATABASE_URL" geni up
+
+echo "Checking status..."
+DATABASE_URL="$DATABASE_URL" geni status
+
+echo "Setup complete!"
+```
+
+### Make Command
+
+```makefile
+.PHONY: db-create
+db-create:
+	@echo "Creating database..."
+	@DATABASE_URL="$(DATABASE_URL)" geni create
+
+.PHONY: db-setup
+db-setup: db-create
+	@echo "Running migrations..."
+	@DATABASE_URL="$(DATABASE_URL)" geni up
+	@echo "Database setup complete!"
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Run Migrations" icon="arrow-up" href="/commands/up">
+    Apply migrations with `geni up`
+  </Card>
+  <Card title="Create Migrations" icon="file-plus" href="/commands/new">
+    Create migration files with `geni new`
+  </Card>
+  <Card title="Check Status" icon="list-check" href="/commands/status">
+    View migration status with `geni status`
+  </Card>
+  <Card title="Drop Database" icon="trash" href="/commands/drop">
+    Remove database with `geni drop`
+  </Card>
+</CardGroup>

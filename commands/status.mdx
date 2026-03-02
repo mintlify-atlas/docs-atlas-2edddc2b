@@ -1,0 +1,408 @@
+---
+title: "geni status"
+description: "View pending migrations and their status"
+---
+
+## Overview
+
+The `geni status` command displays which migrations are pending (not yet applied) to your database. This helps you understand what changes will be made before running `geni up`.
+
+## Usage
+
+```bash
+DATABASE_URL="<connection-string>" geni status
+```
+
+### With Verbose Flag
+
+```bash
+DATABASE_URL="<connection-string>" geni status --verbose
+DATABASE_URL="<connection-string>" geni status -v
+```
+
+## Flags
+
+<ParamField path="--verbose" type="boolean" default="false" flag>
+  Include the full SQL content of pending migrations in the output.
+  
+  **Aliases:** `-v`
+  
+  **Default behavior:** Only shows migration timestamps/names
+  
+  **With flag:** Shows timestamps/names and complete SQL content
+</ParamField>
+
+## Required Environment Variables
+
+<ParamField path="DATABASE_URL" type="string" required>
+  The database connection string. Format varies by database type.
+  
+  **Examples:**
+  - PostgreSQL: `postgres://user:password@localhost:5432/dbname?sslmode=disable`
+  - MySQL: `mysql://root:password@localhost:3306/app`
+  - MariaDB: `mariadb://root:password@localhost:3307/app`
+  - SQLite: `sqlite://./database.sqlite`
+  - LibSQL: `https://localhost:6000`
+</ParamField>
+
+## Optional Environment Variables
+
+<ParamField path="DATABASE_TOKEN" type="string" default="none">
+  Authentication token for LibSQL/Turso databases.
+</ParamField>
+
+<ParamField path="DATABASE_MIGRATIONS_FOLDER" type="string" default="./migrations">
+  Path to the directory containing migration files.
+</ParamField>
+
+<ParamField path="DATABASE_MIGRATIONS_TABLE" type="string" default="schema_migrations">
+  Name of the table used to track applied migrations.
+</ParamField>
+
+<ParamField path="DATABASE_SCHEMA_FILE" type="string" default="schema.sql">
+  Filename for the database schema file.
+</ParamField>
+
+<ParamField path="DATABASE_WAIT_TIMEOUT" type="number" default="30">
+  Number of seconds to wait for the database to be ready.
+</ParamField>
+
+## How It Works
+
+1. **Connect** to the database
+2. **Read** the migrations tracking table to get applied migrations
+3. **Scan** the migrations folder for `.up.sql` files
+4. **Compare** local migration files with applied migrations
+5. **Display** migrations that exist locally but not in the database
+
+## Examples
+
+### Basic Status Check
+
+```bash
+DATABASE_URL="postgres://postgres:password@localhost:5432/app?sslmode=disable" geni status
+```
+
+**Output (with pending migrations):**
+```
+Pending 1709395200
+Pending 1709395245
+Pending 1709395300
+```
+
+**Output (no pending migrations):**
+```
+(no output - all migrations are applied)
+```
+
+### Verbose Status
+
+Show the complete SQL content of pending migrations:
+
+```bash
+DATABASE_URL="postgres://localhost/app" geni status --verbose
+```
+
+**Output:**
+```
+Pending migration 1709395200: 
+ CREATE TABLE users (
+    id SERIAL PRIMARY KEY,
+    email VARCHAR(255) NOT NULL UNIQUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+Pending migration 1709395245:
+ ALTER TABLE users ADD COLUMN name VARCHAR(100);
+
+Pending migration 1709395300:
+ CREATE INDEX idx_users_email ON users(email);
+```
+
+### SQLite Example
+
+```bash
+DATABASE_URL="sqlite://./database.sqlite" geni status
+```
+
+### MySQL Example
+
+```bash
+DATABASE_URL="mysql://root:password@localhost:3306/app" geni status -v
+```
+
+### LibSQL/Turso Example
+
+```bash
+DATABASE_URL="https://my-database-user.turso.io" \
+DATABASE_TOKEN="eyJhbGc..." \
+geni status
+```
+
+### Custom Configuration
+
+```bash
+DATABASE_URL="postgres://localhost/mydb" \
+DATABASE_MIGRATIONS_FOLDER="./db/migrations" \
+DATABASE_MIGRATIONS_TABLE="my_migrations" \
+geni status
+```
+
+## Understanding the Output
+
+### Pending Migrations
+
+Each line starting with "Pending" indicates a migration that exists in your migrations folder but hasn't been applied to the database:
+
+```
+Pending 1709395200
+Pending 1709395245
+```
+
+The number is the Unix timestamp from the migration filename.
+
+### No Output
+
+If `geni status` produces no output, your database is up to date:
+
+```bash
+$ DATABASE_URL="postgres://localhost/app" geni status
+$ echo $?
+0
+```
+
+### Verbose Mode Details
+
+With `--verbose`, you see:
+
+1. **Migration identifier**: The timestamp/name
+2. **SQL content**: The complete contents of the `.up.sql` file
+
+```
+Pending migration 1709395200:
+ CREATE TABLE users (
+     id SERIAL PRIMARY KEY,
+     email VARCHAR(255) NOT NULL UNIQUE
+ );
+```
+
+## Use Cases
+
+### Pre-Deployment Check
+
+Verify what migrations will run before deploying:
+
+```bash
+# Check staging
+DATABASE_URL="$STAGING_DB" geni status
+
+# Check production
+DATABASE_URL="$PROD_DB" geni status
+```
+
+### Development Workflow
+
+Check migration status during development:
+
+```bash
+# After pulling changes from git
+git pull
+DATABASE_URL="sqlite://./dev.db" geni status
+
+# See what changed
+DATABASE_URL="sqlite://./dev.db" geni status -v
+```
+
+### CI/CD Validation
+
+Validate migrations in CI before applying them:
+
+```bash
+# In CI script
+if DATABASE_URL="$TEST_DB" geni status | grep -q "Pending"; then
+  echo "Pending migrations found, running tests..."
+  DATABASE_URL="$TEST_DB" geni up
+  npm test
+else
+  echo "No pending migrations"
+fi
+```
+
+### Code Review
+
+Review pending migrations with verbose output:
+
+```bash
+DATABASE_URL="postgres://localhost/review-db" geni status --verbose > pending_migrations.txt
+```
+
+## Comparing Environments
+
+Check migration status across different environments:
+
+```bash
+# Development
+echo "=== Development ==="
+DATABASE_URL="sqlite://./dev.db" geni status
+
+# Staging
+echo "=== Staging ==="
+DATABASE_URL="$STAGING_DB" geni status
+
+# Production
+echo "=== Production ==="
+DATABASE_URL="$PROD_DB" geni status
+```
+
+## Integration Examples
+
+### Bash Script
+
+```bash
+#!/bin/bash
+set -e
+
+echo "Checking migration status..."
+DATABASE_URL="$DATABASE_URL" geni status
+
+read -p "Apply pending migrations? (y/n) " -n 1 -r
+echo
+if [[ $REPLY =~ ^[Yy]$ ]]; then
+    DATABASE_URL="$DATABASE_URL" geni up
+    echo "Migrations applied successfully!"
+fi
+```
+
+### Make Command
+
+```makefile
+.PHONY: migration-status
+migration-status:
+	@echo "Migration Status:"
+	@DATABASE_URL="$(DATABASE_URL)" geni status
+
+.PHONY: migration-status-verbose
+migration-status-verbose:
+	@DATABASE_URL="$(DATABASE_URL)" geni status --verbose
+```
+
+### Docker
+
+```bash
+docker run --rm -it --network=host \
+  -v "$(pwd)/migrations:/migrations" \
+  -e DATABASE_URL="postgres://localhost/app" \
+  ghcr.io/emilpriver/geni:latest status -v
+```
+
+## CI/CD Integration
+
+### GitHub Actions
+
+```yaml
+- name: Check migration status
+  run: |
+    DATABASE_URL="${{ secrets.DATABASE_URL }}" geni status
+    DATABASE_URL="${{ secrets.DATABASE_URL }}" geni status -v > migration_plan.txt
+  
+- name: Upload migration plan
+  uses: actions/upload-artifact@v3
+  with:
+    name: migration-plan
+    path: migration_plan.txt
+```
+
+### GitLab CI
+
+```yaml
+check-migrations:
+  image: ghcr.io/emilpriver/geni:latest
+  script:
+    - geni status
+    - geni status --verbose
+  variables:
+    DATABASE_URL: $DATABASE_URL
+  only:
+    - merge_requests
+```
+
+## Error Handling
+
+### No Migrations Folder
+
+```
+Couldn't read migration folder: No such file or directory
+```
+
+**Solution**: Ensure the migrations folder exists or set `DATABASE_MIGRATIONS_FOLDER` correctly.
+
+### Connection Failed
+
+```
+No database url found, please set the DATABASE_URL environment variable
+```
+
+**Solution**: Set the `DATABASE_URL` environment variable.
+
+### Migration Table Doesn't Exist
+
+If the migrations tracking table doesn't exist, `geni status` will create it automatically and show all migrations as pending.
+
+## Interpreting Results
+
+### All Migrations Applied
+
+```bash
+$ geni status
+$ # No output = database is up to date
+```
+
+### Some Migrations Pending
+
+```bash
+$ geni status
+Pending 1709395200
+Pending 1709395245
+```
+
+These migrations need to be applied with `geni up`.
+
+### Database Behind Local
+
+If you see many pending migrations, your database might be significantly behind:
+
+```bash
+$ geni status
+Pending 1709395000
+Pending 1709395100
+Pending 1709395200
+Pending 1709395300
+Pending 1709395400
+# Database is 5 migrations behind
+```
+
+## Best Practices
+
+- **Check before applying**: Always run `geni status` before `geni up`
+- **Use in CI/CD**: Integrate status checks into your deployment pipeline
+- **Review with verbose**: Use `-v` to review SQL before applying in production
+- **Document in PRs**: Include `geni status -v` output in pull requests
+- **Compare environments**: Regularly check that staging and production are in sync
+- **Monitor drift**: If environments show different pending migrations, investigate
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Apply Migrations" icon="arrow-up" href="/commands/up">
+    Run pending migrations with `geni up`
+  </Card>
+  <Card title="Create Migration" icon="file-plus" href="/commands/new">
+    Create new migrations with `geni new`
+  </Card>
+  <Card title="Rollback" icon="arrow-down" href="/commands/down">
+    Rollback migrations with `geni down`
+  </Card>
+  <Card title="Dump Schema" icon="file-export" href="/commands/dump">
+    Export database schema with `geni dump`
+  </Card>
+</CardGroup>

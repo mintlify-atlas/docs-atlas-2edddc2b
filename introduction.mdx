@@ -1,0 +1,158 @@
+---
+title: 'Welcome to Geni'
+description: 'A standalone database migration tool written in Rust that works alongside your favorite ORM'
+---
+
+<img
+  className="block dark:hidden"
+  src="/images/hero-light.svg"
+  alt="Geni Hero Light"
+/>
+<img
+  className="hidden dark:block"
+  src="/images/hero-dark.svg"
+  alt="Geni Hero Dark"
+/>
+
+## What is Geni?
+
+Geni is a standalone database migration tool designed to work in conjunction with your preferred ORM, toolkit, or code. Built with Rust, it's blazingly fast, memory-safe, and designed for collaborative teams.
+
+The tool allows multiple developers to collaborate without overriding database migrations and can be integrated into your CI/CD pipeline to ensure your database stays up to date alongside your code.
+
+<Note>
+Geni was heavily inspired by [dbmate](https://github.com/amacneil/dbmate) and was created to provide robust support for LibSQL and modern database workflows.
+</Note>
+
+## Key Features
+
+<CardGroup cols={2}>
+  <Card
+    title="Multi-Database Support"
+    icon="database"
+    href="/installation"
+  >
+    Works with PostgreSQL, MySQL, MariaDB, SQLite, and LibSQL (Turso)
+  </Card>
+  <Card
+    title="Timestamp-Based Migrations"
+    icon="clock"
+    href="/quickstart"
+  >
+    Automatic timestamp prefixing prevents migration conflicts in teams
+  </Card>
+  <Card
+    title="Transaction Support"
+    icon="shield-check"
+    href="/concepts/transactions"
+  >
+    Run migrations in transactions by default with opt-out capability
+  </Card>
+  <Card
+    title="Schema Dumping"
+    icon="file-code"
+    href="/concepts/schema-dumping"
+  >
+    Automatically dump schema.sql after migrations for version control
+  </Card>
+  <Card
+    title="CI/CD Ready"
+    icon="workflow"
+    href="/integration/github-actions"
+  >
+    GitHub Actions integration and Docker images available
+  </Card>
+  <Card
+    title="Library & CLI"
+    icon="code"
+    href="/integration/library-usage"
+  >
+    Use as a CLI tool or integrate as a Rust library in your applications
+  </Card>
+</CardGroup>
+
+## Supported Databases
+
+Geni provides first-class support for multiple database systems:
+
+- **PostgreSQL** - Full support with native schema dumping
+- **MySQL** - Complete migration support with mysqldump integration
+- **MariaDB** - Full compatibility with mariadb-dump
+- **SQLite** - Native support with built-in schema extraction
+- **LibSQL** - Modern SQLite fork with HTTP support (Turso compatible)
+
+## Quick Example
+
+Here's how simple it is to get started with Geni:
+
+```bash
+# Create a new migration
+DATABASE_URL="postgres://localhost/myapp" geni new create_users_table
+
+# Run all pending migrations
+geni up
+
+# Check migration status
+geni status
+
+# Rollback last migration
+geni down
+```
+
+## Why Choose Geni?
+
+<CardGroup cols={1}>
+  <Card title="Built with Rust" icon="rust">
+    Lightning fast performance, minimal memory footprint, and memory safety guarantees. Geni is optimized for speed and reliability.
+  </Card>
+  <Card title="Team Collaboration" icon="users">
+    Timestamp-based migrations prevent conflicts when multiple developers create migrations simultaneously.
+  </Card>
+  <Card title="ORM Agnostic" icon="puzzle-piece">
+    Works alongside any ORM or database toolkit. Use with Diesel, SQLx, SeaORM, or raw SQL.
+  </Card>
+  <Card title="Production Ready" icon="badge-check">
+    Used in production environments with Docker support, GitHub Actions, and comprehensive error handling.
+  </Card>
+</CardGroup>
+
+## Getting Started
+
+<CardGroup cols={2}>
+  <Card
+    title="Installation"
+    icon="download"
+    href="/installation"
+  >
+    Install Geni via Homebrew, Cargo, Docker, GitHub releases, or package managers
+  </Card>
+  <Card
+    title="Quickstart Tutorial"
+    icon="rocket"
+    href="/quickstart"
+  >
+    Learn the basics with a hands-on tutorial in under 5 minutes
+  </Card>
+  <Card
+    title="Configuration"
+    icon="sliders"
+    href="/configuration/environment-variables"
+  >
+    Configure migrations folder, database URLs, and environment variables
+  </Card>
+  <Card
+    title="Commands Reference"
+    icon="terminal"
+    href="/commands/new"
+  >
+    Complete reference for all Geni CLI commands and options
+  </Card>
+</CardGroup>
+
+## Community & Support
+
+<Tip>
+Check out [Database Migrations made easy with Geni](https://www.youtube.com/watch?v=EHVBqHF34hI) by Jamie Barton for a video walkthrough.
+</Tip>
+
+Geni is open source and available on [GitHub](https://github.com/emilpriver/geni). Contributions, issues, and feature requests are welcome!

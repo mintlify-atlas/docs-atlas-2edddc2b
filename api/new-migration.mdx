@@ -1,0 +1,283 @@
+---
+title: new_migration
+description: Generate new migration files programmatically
+---
+
+## Function Signature
+
+```rust
+pub async fn new_migration(
+    migration_path: String,
+    name: &str,
+) -> anyhow::Result<()>
+```
+
+## Description
+
+Generates a new pair of migration files (`.up.sql` and `.down.sql`) with timestamp-based naming. The files are created in the specified migration folder with boilerplate comments to guide writing the migration.
+
+## Parameters
+
+<ParamField path="migration_path" type="String" required>
+  Path to the directory where migration files should be created. The directory will be created if it doesn't exist.
+  
+  Example: `"./migrations"` or `"./db/migrations"`
+</ParamField>
+
+<ParamField path="name" type="&str" required>
+  Descriptive name for the migration. This will be converted to lowercase with spaces replaced by underscores.
+  
+  Examples: `"create_users_table"`, `"add_email_to_users"`, `"Create Users Table"`
+</ParamField>
+
+## Return Value
+
+Returns `Result<()>` which:
+- Returns `Ok(())` if both migration files were created successfully
+- Returns `Err` if there was a file system error or permission issue
+
+## Usage Example
+
+```rust
+use geni;
+
+#[tokio::main]
+async fn main() {
+    // Create a new migration
+    let result = geni::new_migration(
+        "./migrations".to_string(),
+        "create_users_table",
+    )
+    .await;
+
+    match result {
+        Ok(_) => println!("Migration files created successfully"),
+        Err(e) => eprintln!("Failed to create migration: {}", e),
+    }
+}
+```
+
+### Multiple Migrations Example
+
+```rust
+use geni;
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    let migration_folder = "./migrations".to_string();
+    
+    // Create multiple migrations
+    geni::new_migration(
+        migration_folder.clone(),
+        "create_users_table",
+    )
+    .await?;
+    
+    geni::new_migration(
+        migration_folder.clone(),
+        "create_posts_table",
+    )
+    .await?;
+    
+    geni::new_migration(
+        migration_folder.clone(),
+        "add_foreign_keys",
+    )
+    .await?;
+    
+    println!("All migration files created!");
+    Ok(())
+}
+```
+
+### With Name Normalization
+
+```rust
+// Name with spaces will be normalized
+geni::new_migration(
+    "./migrations".to_string(),
+    "Create Users Table", // Becomes: create_users_table
+)
+.await
+.unwrap();
+
+// Name with mixed case will be lowercased
+geni::new_migration(
+    "./migrations".to_string(),
+    "AddEmailColumn", // Becomes: addemailcolumn
+)
+.await
+.unwrap();
+```
+
+## Generated Files
+
+The function creates two files with timestamp-based names:
+
+```
+migrations/
+  ├── 1234567890_create_users_table.up.sql
+  └── 1234567890_create_users_table.down.sql
+```
+
+### File Naming Convention
+
+- Format: `{timestamp}_{normalized_name}.{direction}.sql`
+- Timestamp: Unix timestamp (seconds since epoch)
+- Normalized name: Lowercase with underscores replacing spaces
+- Direction: Either `up` or `down`
+
+### File Contents
+
+**`.up.sql` file:**
+```sql
+-- Write your up sql migration here
+```
+
+**`.down.sql` file:**
+```sql
+-- Write your down sql migration here
+```
+
+## Writing Migrations
+
+After generating the files, you should edit them to add your SQL:
+
+### Example: Creating a Table
+
+**`1234567890_create_users_table.up.sql`:**
+```sql
+-- Write your up sql migration here
+CREATE TABLE users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT NOT NULL UNIQUE,
+    email TEXT NOT NULL UNIQUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+**`1234567890_create_users_table.down.sql`:**
+```sql
+-- Write your down sql migration here
+DROP TABLE users;
+```
+
+### Example: Adding a Column
+
+**`1234567891_add_email_verified_to_users.up.sql`:**
+```sql
+ALTER TABLE users ADD COLUMN email_verified BOOLEAN DEFAULT FALSE;
+```
+
+**`1234567891_add_email_verified_to_users.down.sql`:**
+```sql
+ALTER TABLE users DROP COLUMN email_verified;
+```
+
+## Transaction Control
+
+By default, migrations run in a transaction. To disable transactions for a specific migration, add a comment at the top of the file:
+
+```sql
+-- transaction:no
+CREATE INDEX CONCURRENTLY idx_users_email ON users(email);
+```
+
+This is useful for operations that cannot run inside a transaction, such as:
+- Creating indexes concurrently (PostgreSQL)
+- Some DDL operations in MySQL
+- Database-specific operations that require autocommit mode
+
+## Behavior
+
+1. Validates the migration path
+2. Creates the migration directory if it doesn't exist
+3. Generates a timestamp (current Unix timestamp)
+4. Normalizes the migration name (lowercase, replace spaces with underscores)
+5. Creates both `.up.sql` and `.down.sql` files
+6. Writes boilerplate comments to each file
+7. Logs the file paths of the created migrations
+
+## Error Handling
+
+The function may return errors in these cases:
+- Insufficient permissions to create the migration directory
+- Insufficient permissions to write files
+- Disk space issues
+- Invalid characters in the migration path
+- File system errors
+
+## Complete Workflow Example
+
+```rust
+use geni;
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    let db_url = "sqlite://./myapp.db".to_string();
+    let migration_folder = "./migrations".to_string();
+    let migration_table = "schema_migrations".to_string();
+    let schema_file = "schema.sql".to_string();
+    
+    // Step 1: Generate a new migration
+    geni::new_migration(
+        migration_folder.clone(),
+        "create_users_table",
+    )
+    .await?;
+    
+    println!("Migration created! Edit the .up.sql and .down.sql files.");
+    
+    // (You would manually edit the files here)
+    
+    // Step 2: Run the migration
+    geni::migrate_database(
+        db_url.clone(),
+        None,
+        migration_table.clone(),
+        migration_folder.clone(),
+        schema_file.clone(),
+        Some(30),
+        true,
+    )
+    .await?;
+    
+    println!("Migration applied!");
+    
+    // Step 3: Check status
+    geni::status_migrations(
+        db_url,
+        None,
+        migration_table,
+        migration_folder,
+        schema_file,
+        Some(30),
+        true,
+    )
+    .await?;
+    
+    Ok(())
+}
+```
+
+## Best Practices
+
+1. **Use descriptive names**: Choose migration names that clearly describe what the migration does
+   - Good: `"create_users_table"`, `"add_index_to_email"`, `"remove_deprecated_columns"`
+   - Bad: `"migration1"`, `"fix"`, `"update"`
+
+2. **One logical change per migration**: Each migration should represent a single logical change
+   - Create separate migrations for creating different tables
+   - Don't mix table creation with index creation unless they're closely related
+
+3. **Write reversible migrations**: Ensure your `.down.sql` properly reverses the `.up.sql`
+   - Test rollbacks in development
+   - Be aware of data loss in destructive rollbacks
+
+4. **Test before committing**: Test both up and down migrations before committing to version control
+
+## See Also
+
+- [migrate_database](/api/migrate-database) - Apply the generated migrations
+- [migate_down](/api/migrate-down) - Test rollback migrations
+- [status_migrations](/api/status-migrations) - Check migration status

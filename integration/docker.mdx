@@ -1,0 +1,373 @@
+---
+title: Docker Integration
+description: Run Geni in Docker containers for consistent migration environments
+---
+
+Geni provides official Docker images for running migrations in containerized environments.
+
+## Quick Start
+
+Run Geni using the official Docker image:
+
+```bash
+docker run --rm -it --network=host \
+  -v "$(pwd)/migrations:/migrations" \
+  -e DATABASE_URL="postgres://user:pass@localhost:5432/db" \
+  ghcr.io/emilpriver/geni:latest up
+```
+
+## Available Images
+
+Geni provides two Docker image variants:
+
+### Full Image (Latest)
+
+```bash
+ghcr.io/emilpriver/geni:latest
+```
+
+<Info>
+  The full image includes database-specific tools like `pg_dump`, `mysqldump`, and `mariadb-dump` for schema dumping functionality.
+</Info>
+
+### Slim Image
+
+```bash
+ghcr.io/emilpriver/geni:latest-slim
+```
+
+<Warning>
+  The slim image does not include database dump utilities. It will not attempt to dump schemas for MySQL, MariaDB, or PostgreSQL databases.
+</Warning>
+
+## Image Configuration
+
+The Docker images are built with the following configuration:
+
+- **Base:** Alpine Linux 3.19.1 (minimal footprint)
+- **Binary location:** `/usr/src/app/geni`
+- **Default migrations folder:** `/migrations`
+- **Entrypoint:** `./geni`
+
+## Volume Mounting
+
+To work with migrations on your host system, mount your migrations directory:
+
+```bash
+docker run --rm -it \
+  -v "$(pwd)/migrations:/migrations" \
+  ghcr.io/emilpriver/geni:latest up
+```
+
+<Note>
+  The `-v` flag creates a bind mount, making your local `migrations` folder available inside the container at `/migrations`.
+</Note>
+
+## Common Use Cases
+
+### Apply Migrations
+
+```bash
+docker run --rm -it --network=host \
+  -v "$(pwd)/migrations:/migrations" \
+  -e DATABASE_URL="postgres://user:pass@localhost:5432/db" \
+  ghcr.io/emilpriver/geni:latest up
+```
+
+### Create New Migration
+
+```bash
+docker run --rm -it \
+  -v "$(pwd)/migrations:/migrations" \
+  -e DATABASE_URL="sqlite:///migrations/dev.db" \
+  ghcr.io/emilpriver/geni:latest new create_users_table
+```
+
+### Rollback Migrations
+
+```bash
+docker run --rm -it --network=host \
+  -v "$(pwd)/migrations:/migrations" \
+  -e DATABASE_URL="postgres://user:pass@localhost:5432/db" \
+  ghcr.io/emilpriver/geni:latest down -a 2
+```
+
+### Check Migration Status
+
+```bash
+docker run --rm -it --network=host \
+  -v "$(pwd)/migrations:/migrations" \
+  -e DATABASE_URL="postgres://user:pass@localhost:5432/db" \
+  ghcr.io/emilpriver/geni:latest status
+```
+
+### View Help
+
+```bash
+docker run --rm -it ghcr.io/emilpriver/geni:latest --help
+```
+
+## Environment Variables
+
+Configure Geni using environment variables:
+
+```bash
+docker run --rm -it --network=host \
+  -v "$(pwd)/migrations:/migrations" \
+  -e DATABASE_URL="postgres://user:pass@localhost:5432/db" \
+  -e DATABASE_MIGRATIONS_FOLDER="/migrations" \
+  -e DATABASE_MIGRATIONS_TABLE="schema_migrations" \
+  -e DATABASE_WAIT_TIMEOUT="60" \
+  -e DATABASE_SCHEMA_FILE="schema.sql" \
+  ghcr.io/emilpriver/geni:latest up
+```
+
+## Docker Compose
+
+Integrate Geni into your Docker Compose workflow:
+
+### Basic Example
+
+```yaml
+version: "3.9"
+
+services:
+  db:
+    image: postgres:14
+    environment:
+      POSTGRES_DB: app
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+    ports:
+      - "5432:5432"
+  
+  migrations:
+    image: ghcr.io/emilpriver/geni:latest
+    depends_on:
+      - db
+    volumes:
+      - ./migrations:/migrations
+    environment:
+      DATABASE_URL: postgres://postgres:password@db:5432/app?sslmode=disable
+      DATABASE_WAIT_TIMEOUT: "60"
+    command: up
+```
+
+Run migrations:
+
+```bash
+docker compose up migrations
+```
+
+### Multi-Database Setup
+
+```yaml
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:14
+    environment:
+      POSTGRES_DB: development
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: mysecretpassword
+    ports:
+      - "5432:5432"
+  
+  mysql:
+    image: mysql:latest
+    environment:
+      MYSQL_DATABASE: development
+      MYSQL_USER: user
+      MYSQL_PASSWORD: password
+      MYSQL_ROOT_PASSWORD: password
+    ports:
+      - "3306:3306"
+  
+  geni-postgres:
+    image: ghcr.io/emilpriver/geni:latest
+    depends_on:
+      - postgres
+    volumes:
+      - ./migrations/postgres:/migrations
+    environment:
+      DATABASE_URL: postgres://postgres:mysecretpassword@postgres:5432/development?sslmode=disable
+      DATABASE_WAIT_TIMEOUT: "60"
+    command: up
+  
+  geni-mysql:
+    image: ghcr.io/emilpriver/geni:latest
+    depends_on:
+      - mysql
+    volumes:
+      - ./migrations/mysql:/migrations
+    environment:
+      DATABASE_URL: mysql://root:password@mysql:3306/development
+      DATABASE_WAIT_TIMEOUT: "60"
+    command: up
+```
+
+### Development Workflow
+
+Create a development setup with automatic migrations:
+
+```yaml
+version: "3.9"
+
+services:
+  db:
+    image: postgres:14
+    environment:
+      POSTGRES_DB: dev
+      POSTGRES_USER: dev
+      POSTGRES_PASSWORD: dev
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dev"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+  
+  migrations:
+    image: ghcr.io/emilpriver/geni:latest
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./migrations:/migrations
+    environment:
+      DATABASE_URL: postgres://dev:dev@db:5432/dev?sslmode=disable
+      DATABASE_WAIT_TIMEOUT: "30"
+    command: up
+  
+  app:
+    build: .
+    depends_on:
+      migrations:
+        condition: service_completed_successfully
+    environment:
+      DATABASE_URL: postgres://dev:dev@db:5432/dev?sslmode=disable
+    ports:
+      - "3000:3000"
+
+volumes:
+  postgres_data:
+```
+
+## Networking Considerations
+
+### Host Network Mode
+
+When connecting to databases on your host machine:
+
+```bash
+docker run --rm -it --network=host \
+  -v "$(pwd)/migrations:/migrations" \
+  -e DATABASE_URL="postgres://user:pass@localhost:5432/db" \
+  ghcr.io/emilpriver/geni:latest up
+```
+
+### Bridge Network
+
+When using Docker Compose or custom networks, use service names:
+
+```bash
+docker run --rm -it --network=my_network \
+  -v "$(pwd)/migrations:/migrations" \
+  -e DATABASE_URL="postgres://user:pass@postgres:5432/db" \
+  ghcr.io/emilpriver/geni:latest up
+```
+
+## Building Custom Images
+
+You can build custom Geni images from the source:
+
+### Dockerfile Reference
+
+```dockerfile
+FROM rust:1.89.0-alpine3.22 as builder
+WORKDIR /usr/src/app
+COPY . .
+
+RUN apk add musl-dev
+RUN cargo build --release
+RUN cp target/release/geni /usr/src/app/geni
+
+FROM alpine:3.19.1
+COPY --from=builder /usr/src/app/geni /usr/src/app/geni
+
+ENV DATABASE_MIGRATIONS_FOLDER="/migrations"
+
+LABEL org.opencontainers.image.description="Geni: Standalone database migration tool"
+
+WORKDIR /usr/src/app
+
+ENTRYPOINT ["./geni"]
+```
+
+### Build Custom Image
+
+```bash
+# Clone the repository
+git clone https://github.com/emilpriver/geni.git
+cd geni
+
+# Build the image
+docker build -t my-geni:latest .
+
+# Run your custom image
+docker run --rm -it my-geni:latest --help
+```
+
+## Best Practices
+
+<Steps>
+  <Step title="Use Volume Mounts for Migrations">
+    Always mount your migrations directory to ensure changes persist and can be version controlled.
+  </Step>
+  
+  <Step title="Set Appropriate Timeouts">
+    Use `DATABASE_WAIT_TIMEOUT` when databases need initialization time, especially in Docker Compose setups.
+  </Step>
+  
+  <Step title="Use Health Checks">
+    In Docker Compose, use health checks to ensure databases are ready before running migrations.
+  </Step>
+  
+  <Step title="Choose the Right Image">
+    Use the slim image if you don't need schema dumping to reduce image size and attack surface.
+  </Step>
+  
+  <Step title="Manage Secrets Securely">
+    Use Docker secrets or environment files for sensitive database credentials, not command-line arguments.
+  </Step>
+</Steps>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Cannot connect to localhost database">
+    Use `--network=host` to access databases running on your host machine, or use the appropriate service name in Docker networks.
+  </Accordion>
+  
+  <Accordion title="Migration files not found">
+    Ensure you're mounting the correct local directory to `/migrations` in the container:
+    ```bash
+    -v "$(pwd)/migrations:/migrations"
+    ```
+  </Accordion>
+  
+  <Accordion title="Permission errors on mounted volumes">
+    Check file permissions on your host system. The container runs as root by default, but file ownership may cause issues.
+  </Accordion>
+  
+  <Accordion title="Schema dump fails in slim image">
+    The slim image doesn't include dump utilities. Use the full image (`latest`) if you need schema dumping:
+    ```bash
+    ghcr.io/emilpriver/geni:latest
+    ```
+  </Accordion>
+</AccordionGroup>

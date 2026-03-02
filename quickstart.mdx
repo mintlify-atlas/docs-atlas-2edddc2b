@@ -1,80 +1,410 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: 'Quickstart'
+description: 'Get started with Geni in under 5 minutes - from installation to your first migration'
 ---
 
-## Get started in three steps
+Get up and running with Geni in minutes. This guide walks you through installing Geni, creating your first migration, and managing your database schema.
 
-Get your documentation site running locally and make your first customization.
+## Prerequisites
 
-### Step 1: Set up your local environment
+Before you begin, ensure you have:
+- A PostgreSQL, MySQL, MariaDB, SQLite, or LibSQL database
+- Terminal access
+- Database connection credentials (if applicable)
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
+## Installation
 
-### Step 2: Deploy your changes
+<Steps>
+  <Step title="Install Geni">
+    Choose your preferred installation method:
 
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
+    <CodeGroup>
+      ```bash Homebrew (macOS/Linux)
+      brew install geni
+      ```
+
+      ```bash Direct Download (Linux)
+      sudo curl -fsSL -o /usr/local/bin/geni https://github.com/emilpriver/geni/releases/latest/download/geni-linux-amd64
+      sudo chmod +x /usr/local/bin/geni
+      ```
+
+      ```bash Cargo (Rust)
+      cargo install geni
+      ```
+
+      ```bash PKGX
+      pkgx geni --help
+      ```
+
+      ```bash Nix
+      nix run github:emilpriver/geni -- --help
+      ```
+    </CodeGroup>
+  </Step>
+
+  <Step title="Verify Installation">
+    Confirm Geni is installed correctly:
+
+    ```bash
+    geni help
+    ```
+
+    You should see the available commands and options.
+  </Step>
+</Steps>
+
+## Your First Migration
+
+Let's create a simple users table to demonstrate the complete migration workflow.
+
+<Steps>
+  <Step title="Set Your Database URL">
+    Geni uses the `DATABASE_URL` environment variable to connect to your database. Choose your database type:
+
+    <CodeGroup>
+      ```bash PostgreSQL
+      export DATABASE_URL="postgres://postgres:password@localhost:5432/myapp?sslmode=disable"
+      ```
+
+      ```bash MySQL
+      export DATABASE_URL="mysql://root:password@localhost:3306/myapp"
+      ```
+
+      ```bash MariaDB
+      export DATABASE_URL="mariadb://root:password@localhost:3307/myapp"
+      ```
+
+      ```bash SQLite
+      export DATABASE_URL="sqlite://./database.sqlite"
+      ```
+
+      ```bash LibSQL/Turso
+      export DATABASE_URL="https://your-database.turso.io"
+      export DATABASE_TOKEN="your-auth-token"
+      ```
+    </CodeGroup>
+
+    <Note>
+      For SQLite, Geni will automatically create the database file if it doesn't exist. For other databases, you may need to create the database first using `geni create`.
+    </Note>
+  </Step>
+
+  <Step title="Create the Database (Optional)">
+    If you're using PostgreSQL, MySQL, or MariaDB and need to create the database:
+
+    ```bash
+    geni create
+    ```
+
+    <Warning>
+      This command creates a new database. If your database already exists, skip this step.
+    </Warning>
+  </Step>
+
+  <Step title="Generate Your First Migration">
+    Create migration files for a users table:
+
+    ```bash
+    geni new create_users_table
+    ```
+
+    This creates two files in the `./migrations` directory:
+    - `YYYYMMDDHHMMSS_create_users_table.up.sql` - Contains the forward migration
+    - `YYYYMMDDHHMMSS_create_users_table.down.sql` - Contains the rollback migration
+
+    <Tip>
+      The timestamp prefix ensures migrations run in the correct order, even when multiple developers are working on the same project.
+    </Tip>
+  </Step>
+
+  <Step title="Write Your Migration SQL">
+    Open the generated `.up.sql` file and add your table creation SQL:
+
+    <CodeGroup>
+      ```sql PostgreSQL (up)
+      CREATE TABLE users (
+          id SERIAL PRIMARY KEY,
+          username VARCHAR(255) NOT NULL UNIQUE,
+          email VARCHAR(255) NOT NULL UNIQUE,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE INDEX idx_users_email ON users(email);
+      ```
+
+      ```sql MySQL/MariaDB (up)
+      CREATE TABLE users (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          username VARCHAR(255) NOT NULL UNIQUE,
+          email VARCHAR(255) NOT NULL UNIQUE,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      );
+
+      CREATE INDEX idx_users_email ON users(email);
+      ```
+
+      ```sql SQLite (up)
+      CREATE TABLE users (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          username TEXT NOT NULL UNIQUE,
+          email TEXT NOT NULL UNIQUE,
+          created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE INDEX idx_users_email ON users(email);
+      ```
+    </CodeGroup>
+
+    Now open the corresponding `.down.sql` file and add the rollback SQL:
+
+    ```sql Rollback (down)
+    DROP INDEX IF EXISTS idx_users_email;
+    DROP TABLE IF EXISTS users;
+    ```
+
+    <Note>
+      The `.down.sql` file should reverse everything that the `.up.sql` file does. This ensures you can safely rollback migrations if needed.
+    </Note>
+  </Step>
+
+  <Step title="Run the Migration">
+    Apply your migration to the database:
+
+    ```bash
+    geni up
+    ```
+
+    You should see output indicating the migration was successful. Geni will:
+    1. Run your SQL inside a transaction (by default)
+    2. Record the migration in the `schema_migrations` table
+    3. Generate a `schema.sql` file with your current database schema
+
+    <Tip>
+      Geni runs migrations in transactions by default. If you need to disable transactions for a specific migration, add `-- transaction:no` as the first line of your migration file.
+    </Tip>
+  </Step>
+
+  <Step title="Check Migration Status">
+    Verify which migrations have been applied:
+
+    ```bash
+    geni status
+    ```
+
+    This shows all migrations and whether they've been applied to your database.
+  </Step>
+</Steps>
+
+## Testing Rollbacks
+
+Let's test rolling back the migration to ensure your `.down.sql` file works correctly.
+
+<Steps>
+  <Step title="Rollback the Migration">
+    Rollback your most recent migration:
+
+    ```bash
+    geni down
+    ```
+
+    This executes the SQL in your `.down.sql` file, removing the users table and index.
+
+    To rollback multiple migrations at once, use the `-a` flag:
+
+    ```bash
+    geni down -a 3
+    ```
+  </Step>
+
+  <Step title="Verify the Rollback">
+    Check the status again to confirm the migration was rolled back:
+
+    ```bash
+    geni status
+    ```
+
+    Your migration should now show as pending.
+  </Step>
+
+  <Step title="Re-apply the Migration">
+    Run the migration again to restore your users table:
+
+    ```bash
+    geni up
+    ```
+  </Step>
+</Steps>
+
+## Creating Additional Migrations
+
+Let's add a posts table that references the users table.
+
+<Accordion title="Example: Adding a Posts Table">
+  <Steps>
+    <Step title="Generate Migration Files">
+      ```bash
+      geni new create_posts_table
+      ```
+    </Step>
+
+    <Step title="Write the Migration">
+      In the `.up.sql` file:
+
+      ```sql
+      CREATE TABLE posts (
+          id SERIAL PRIMARY KEY,
+          user_id INTEGER NOT NULL,
+          title VARCHAR(255) NOT NULL,
+          content TEXT,
+          published BOOLEAN DEFAULT FALSE,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      );
+
+      CREATE INDEX idx_posts_user_id ON posts(user_id);
+      CREATE INDEX idx_posts_published ON posts(published);
+      ```
+
+      In the `.down.sql` file:
+
+      ```sql
+      DROP INDEX IF EXISTS idx_posts_published;
+      DROP INDEX IF EXISTS idx_posts_user_id;
+      DROP TABLE IF EXISTS posts;
+      ```
+    </Step>
+
+    <Step title="Apply the Migration">
+      ```bash
+      geni up
+      ```
+    </Step>
+  </Steps>
 </Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
 
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
+## Advanced Configuration
 
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
+<Accordion title="Customize Migration Folder Location">
+  By default, Geni looks for migrations in `./migrations`. To use a different location:
 
-### Step 3: Go live
-
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
+  ```bash
+  export DATABASE_MIGRATIONS_FOLDER="./db/migrations"
+  geni up
+  ```
 </Accordion>
 
-## Next steps
+<Accordion title="Custom Migrations Table Name">
+  Change the table where Geni tracks applied migrations:
 
-Now that you have your docs running, explore these key features:
+  ```bash
+  export DATABASE_MIGRATIONS_TABLE="custom_migrations"
+  geni up
+  ```
+</Accordion>
+
+<Accordion title="Disable Schema Dumping">
+  By default, Geni creates a `schema.sql` file after each migration. To disable this:
+
+  ```bash
+  export DATABASE_NO_DUMP_SCHEMA="true"
+  geni up
+  ```
+</Accordion>
+
+<Accordion title="Set Connection Timeout">
+  If your database takes time to start up, adjust the wait timeout:
+
+  ```bash
+  export DATABASE_WAIT_TIMEOUT="60"  # Wait up to 60 seconds
+  geni up
+  ```
+</Accordion>
+
+## Common Workflows
 
 <CardGroup cols={2}>
+  <Card title="Check Pending Migrations" icon="list-check">
+    Before deploying, see what migrations will run:
+    ```bash
+    geni status
+    ```
+  </Card>
 
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
+  <Card title="Run in CI/CD" icon="rocket">
+    In your deployment pipeline:
+    ```bash
+    # DATABASE_URL set via environment
+    geni up
+    ```
+  </Card>
 
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
+  <Card title="Rollback Bad Migration" icon="rotate-left">
+    Quickly revert the last migration:
+    ```bash
+    geni down
+    ```
+  </Card>
 
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
+  <Card title="Drop Database" icon="trash">
+    Remove the entire database (be careful!):
+    ```bash
+    geni drop
+    ```
+  </Card>
 </CardGroup>
 
-<Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
-</Note>
+## What's Next?
+
+Now that you've mastered the basics, explore more advanced features:
+
+<CardGroup cols={2}>
+  <Card title="Database Support" icon="database" href="/databases/postgres">
+    Learn database-specific features and best practices
+  </Card>
+
+  <Card title="Transaction Control" icon="arrows-rotate" href="/concepts/transactions">
+    Control when migrations run in transactions
+  </Card>
+
+  <Card title="CI/CD Integration" icon="code-branch" href="/integration/github-actions">
+    Automate migrations in your deployment pipeline
+  </Card>
+
+  <Card title="Library Usage" icon="code" href="/integration/library-usage">
+    Use Geni programmatically in your Rust applications
+  </Card>
+</CardGroup>
+
+## Troubleshooting
+
+<Accordion title="Connection Errors">
+  If Geni can't connect to your database:
+  - Verify your `DATABASE_URL` is correct
+  - Ensure your database is running
+  - Check firewall rules and network connectivity
+  - For LibSQL/Turso, verify your `DATABASE_TOKEN` is set
+</Accordion>
+
+<Accordion title="Migration File Not Found">
+  If Geni can't find your migrations:
+  - Ensure migrations are in the correct folder (default: `./migrations`)
+  - Use `DATABASE_MIGRATIONS_FOLDER` to specify a custom location
+  - Check file naming: `TIMESTAMP_name.up.sql` and `TIMESTAMP_name.down.sql`
+</Accordion>
+
+<Accordion title="Transaction Errors">
+  Some operations can't run in transactions (like `CREATE INDEX CONCURRENTLY` in PostgreSQL):
+  - Add `-- transaction:no` as the first line of your migration file
+  - This disables transaction wrapping for that specific migration
+</Accordion>
+
+<Accordion title="Schema Dump Failures">
+  If schema dumping fails:
+  - For MySQL, ensure `mysqldump` is installed
+  - For MariaDB, ensure `mariadb-dump` is installed
+  - Use `DATABASE_NO_DUMP_SCHEMA=true` to disable dumping
+  - Consider using the slim Docker image if you don't need dumps
+</Accordion>

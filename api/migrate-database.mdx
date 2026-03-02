@@ -1,0 +1,145 @@
+---
+title: migrate_database
+description: Run pending database migrations programmatically
+---
+
+## Function Signature
+
+```rust
+pub async fn migrate_database(
+    database_url: String,
+    database_token: Option<String>,
+    migration_table: String,
+    migration_folder: String,
+    schema_file: String,
+    wait_timeout: Option<usize>,
+    dump_schema: bool,
+) -> anyhow::Result<()>
+```
+
+## Description
+
+Migrates the database by running all pending migrations found in the migration folder. This function applies all `.up.sql` migration files that haven't been applied yet, tracks them in the migrations table, and optionally dumps the database schema after successful migration.
+
+## Parameters
+
+<ParamField path="database_url" type="String" required>
+  The database connection URL. Supports multiple database types:
+  - PostgreSQL: `postgres://user:password@host:port/database?sslmode=disable`
+  - MySQL: `mysql://root:password@localhost:3306/app`
+  - MariaDB: `mariadb://root:password@localhost:3307/app`
+  - SQLite: `sqlite://./database.sqlite`
+  - LibSQL/Turso: `https://your-database.turso.io`
+</ParamField>
+
+<ParamField path="database_token" type="Option<String>" required>
+  Authentication token for LibSQL/Turso databases. Use `None` for other database types or when authentication is not required.
+</ParamField>
+
+<ParamField path="migration_table" type="String" required>
+  Name of the table used to track applied migrations. Common values: `"schema_migrations"` or `"migrations"`.
+</ParamField>
+
+<ParamField path="migration_folder" type="String" required>
+  Path to the directory containing migration files. Example: `"./migrations"` or `"./db/migrations"`.
+</ParamField>
+
+<ParamField path="schema_file" type="String" required>
+  Name of the schema dump file to generate after migrations. Example: `"schema.sql"`.
+</ParamField>
+
+<ParamField path="wait_timeout" type="Option<usize>" required>
+  Timeout in seconds to wait for the database to be ready before attempting migrations. Use `Some(30)` for 30 seconds, or `None` for default timeout.
+</ParamField>
+
+<ParamField path="dump_schema" type="bool" required>
+  Whether to dump the database schema to a file after successful migration. Set to `true` to enable schema dumping, `false` to skip.
+</ParamField>
+
+## Return Value
+
+Returns `Result<()>` which:
+- Returns `Ok(())` if all migrations were applied successfully
+- Returns `Err` if there was a connection error, migration file error, or SQL execution error
+
+## Usage Example
+
+```rust
+use geni;
+
+#[tokio::main]
+async fn main() {
+    // Migrate a SQLite database
+    let result = geni::migrate_database(
+        "sqlite://./test.db".to_string(),
+        None,
+        "schema_migrations".to_string(),
+        "./migrations".to_string(),
+        "schema.sql".to_string(),
+        Some(30),
+        true,
+    )
+    .await;
+
+    match result {
+        Ok(_) => println!("Migrations applied successfully"),
+        Err(e) => eprintln!("Migration failed: {}", e),
+    }
+}
+```
+
+### PostgreSQL Example
+
+```rust
+geni::migrate_database(
+    "postgres://postgres:password@127.0.0.1:5432/app?sslmode=disable".to_string(),
+    None,
+    "schema_migrations".to_string(),
+    "./migrations".to_string(),
+    "schema.sql".to_string(),
+    Some(30),
+    true,
+)
+.await
+.unwrap();
+```
+
+### LibSQL/Turso Example
+
+```rust
+geni::migrate_database(
+    "https://my-database.turso.io".to_string(),
+    Some("your-auth-token".to_string()),
+    "schema_migrations".to_string(),
+    "./migrations".to_string(),
+    "schema.sql".to_string(),
+    Some(30),
+    true,
+)
+.await
+.unwrap();
+```
+
+## Behavior
+
+- Reads all `.up.sql` files from the migration folder
+- Compares with migrations already applied (stored in the migration table)
+- Executes pending migrations in timestamp order
+- Each migration runs in a transaction by default (unless `-- transaction:no` is specified in the migration file)
+- Updates the migration tracking table after each successful migration
+- Optionally dumps the database schema after all migrations complete
+
+## Error Handling
+
+The function may return errors in these cases:
+- Database connection failure
+- Migration folder doesn't exist or is unreadable
+- Invalid SQL syntax in migration files
+- Transaction rollback due to SQL errors
+- Permission issues when writing schema dump file
+
+## See Also
+
+- [migate_down](/api/migrate-down) - Rollback migrations
+- [status_migrations](/api/status-migrations) - Check migration status
+- [new_migration](/api/new-migration) - Create new migration files

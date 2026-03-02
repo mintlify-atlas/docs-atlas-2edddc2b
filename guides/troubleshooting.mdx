@@ -1,0 +1,392 @@
+---
+title: "Troubleshooting"
+description: "Common issues and solutions when working with Geni"
+---
+
+## Common Issues
+
+This guide covers the most common issues you might encounter when using Geni and how to resolve them.
+
+<AccordionGroup>
+  <Accordion title="Error: No database url found" icon="link">
+    **Error message:**
+    ```
+    No database url found, please set the DATABASE_URL environment variable
+    ```
+
+    **Cause:** The `DATABASE_URL` environment variable is not set or is empty.
+
+    **Solution:**
+    Set the `DATABASE_URL` environment variable before running any Geni command:
+
+    ```bash
+    # For PostgreSQL
+    DATABASE_URL="postgres://postgres@127.0.0.1:5432/app?sslmode=disable" geni up
+
+    # For MySQL
+    DATABASE_URL="mysql://root:password@localhost:3306/app" geni up
+
+    # For SQLite
+    DATABASE_URL="sqlite://./database.sqlite" geni up
+    ```
+
+    Alternatively, export it in your shell:
+    ```bash
+    export DATABASE_URL="postgres://postgres@127.0.0.1:5432/app"
+    geni up
+    ```
+  </Accordion>
+
+  <Accordion title="Error: Didn't find any files ending with .up.sql" icon="folder-open">
+    **Error message:**
+    ```
+    Didn't find any files ending with .up.sql at ./migrations. Does the path exist?
+    ```
+
+    **Cause:** The migrations folder is empty or doesn't exist, or you're running Geni from the wrong directory.
+
+    **Solution:**
+    
+    1. Create your first migration:
+    ```bash
+    DATABASE_URL="your_db_url" geni new create_users_table
+    ```
+
+    2. If migrations exist elsewhere, set the correct path:
+    ```bash
+    DATABASE_MIGRATIONS_FOLDER="./db/migrations" geni up
+    ```
+
+    3. Verify the migrations folder exists:
+    ```bash
+    ls -la ./migrations
+    ```
+  </Accordion>
+
+  <Accordion title="Error: Connection timeout" icon="clock">
+    **Error message:**
+    ```
+    Failed to connect to database: connection timeout
+    ```
+
+    **Cause:** Database is not running, incorrect connection string, or network issues.
+
+    **Solution:**
+
+    1. Verify the database is running:
+    ```bash
+    # For PostgreSQL
+    pg_isready -h localhost -p 5432
+
+    # For MySQL
+    mysqladmin ping -h localhost
+
+    # For Docker containers
+    docker ps | grep postgres
+    ```
+
+    2. Increase the wait timeout:
+    ```bash
+    DATABASE_WAIT_TIMEOUT=60 geni up
+    ```
+
+    3. Check your connection string format matches your database:
+    - PostgreSQL: `postgres://user:password@host:port/database`
+    - MySQL: `mysql://user:password@host:port/database`
+    - MariaDB: `mariadb://user:password@host:port/database`
+    - SQLite: `sqlite://./path/to/file.db`
+    - LibSQL: `https://your-instance.turso.io`
+  </Accordion>
+
+  <Accordion title="Error: No rollback file found" icon="rotate-left">
+    **Error message:**
+    ```
+    No rollback file found for 1709123456
+    ```
+
+    **Cause:** The corresponding `.down.sql` file is missing for a migration that's been applied.
+
+    **Solution:**
+
+    1. Check if the down migration file exists:
+    ```bash
+    ls migrations/*_*.down.sql
+    ```
+
+    2. If missing, recreate it with the same timestamp. For migration `1709123456_create_users.up.sql`, create:
+    ```bash
+    touch migrations/1709123456_create_users.down.sql
+    ```
+
+    3. Add the rollback SQL that reverses the up migration:
+    ```sql
+    -- In 1709123456_create_users.down.sql
+    DROP TABLE users;
+    ```
+
+    <Warning>
+      Never delete migration files that have been applied to production. Always create down migrations for safe rollbacks.
+    </Warning>
+  </Accordion>
+
+  <Accordion title="Error: Transaction deadlock or lock timeout" icon="lock">
+    **Error message:**
+    ```
+    Error: Deadlock detected / Lock wait timeout exceeded
+    ```
+
+    **Cause:** Migration is trying to modify a table that's locked by another process, or a long-running migration is blocking others.
+
+    **Solution:**
+
+    1. Run migrations outside of transactions for DDL operations that can't be rolled back:
+    ```sql
+    -- transaction:no
+    CREATE INDEX CONCURRENTLY idx_users_email ON users(email);
+    ```
+
+    2. Check for blocking queries:
+    ```sql
+    -- PostgreSQL
+    SELECT * FROM pg_stat_activity WHERE state = 'active';
+
+    -- MySQL
+    SHOW PROCESSLIST;
+    ```
+
+    3. Ensure migrations run during low-traffic periods for production databases.
+  </Accordion>
+
+  <Accordion title="LibSQL/Turso authentication fails" icon="key">
+    **Error message:**
+    ```
+    Error: Unauthorized / Authentication failed
+    ```
+
+    **Cause:** Missing or invalid `DATABASE_TOKEN` for LibSQL/Turso databases.
+
+    **Solution:**
+
+    1. Get your Turso database token:
+    ```bash
+    turso db tokens create your-database
+    ```
+
+    2. Set both `DATABASE_URL` and `DATABASE_TOKEN`:
+    ```bash
+    DATABASE_URL="https://your-db.turso.io" \
+    DATABASE_TOKEN="your-token-here" \
+    geni up
+    ```
+
+    3. For local LibSQL instances, ensure the URL matches your server configuration.
+  </Accordion>
+
+  <Accordion title="Schema dump fails" icon="database">
+    **Error message:**
+    ```
+    Skipping dumping database schema: Command not found
+    ```
+
+    **Cause:** Required database tools (`pg_dump`, `mysqldump`, `mariadb-dump`) are not installed.
+
+    **Solution:**
+
+    1. Install the required tools:
+    ```bash
+    # Ubuntu/Debian - PostgreSQL
+    sudo apt-get install postgresql-client
+
+    # Ubuntu/Debian - MySQL
+    sudo apt-get install mysql-client
+
+    # macOS
+    brew install postgresql mysql-client
+    ```
+
+    2. Use the slim Docker image if you don't need schema dumps:
+    ```bash
+    docker run ghcr.io/emilpriver/geni:latest-slim up
+    ```
+
+    3. Disable schema dumping:
+    ```bash
+    DATABASE_NO_DUMP_SCHEMA=true geni up
+    ```
+
+    <Note>
+      SQLite and LibSQL don't require external tools for schema dumping - it's handled natively.
+    </Note>
+  </Accordion>
+
+  <Accordion title="Migration file naming issues" icon="file">
+    **Error message:**
+    ```
+    Error: Invalid migration file name format
+    ```
+
+    **Cause:** Migration files don't follow the required naming convention.
+
+    **Solution:**
+
+    Migration files must follow this pattern:
+    ```
+    {timestamp}_{name}.{up|down}.sql
+    ```
+
+    Examples:
+    - ✅ `1709123456_create_users.up.sql`
+    - ✅ `1709123456_create_users.down.sql`
+    - ❌ `create_users.up.sql` (missing timestamp)
+    - ❌ `1709123456-create-users.up.sql` (using hyphens)
+    - ❌ `1709123456_create_users.sql` (missing direction)
+
+    Always use `geni new` to generate properly named files:
+    ```bash
+    geni new create_users_table
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Database-Specific Issues
+
+### PostgreSQL
+
+<AccordionGroup>
+  <Accordion title="SSL connection required" icon="shield">
+    If your PostgreSQL server requires SSL, add `sslmode=require` to your connection string:
+    ```bash
+    DATABASE_URL="postgres://user:pass@host:5432/db?sslmode=require"
+    ```
+
+    For development, you can disable SSL verification:
+    ```bash
+    DATABASE_URL="postgres://user:pass@host:5432/db?sslmode=disable"
+    ```
+  </Accordion>
+
+  <Accordion title="Permission denied to create database" icon="lock">
+    Ensure your database user has `CREATEDB` privileges:
+    ```sql
+    ALTER USER your_user CREATEDB;
+    ```
+
+    Or connect as a superuser:
+    ```bash
+    DATABASE_URL="postgres://postgres:password@localhost:5432/app"
+    ```
+  </Accordion>
+</AccordionGroup>
+
+### MySQL/MariaDB
+
+<AccordionGroup>
+  <Accordion title="Authentication plugin error" icon="plug">
+    For MySQL 8.0+, you might need to use the legacy authentication:
+    ```sql
+    ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY 'password';
+    FLUSH PRIVILEGES;
+    ```
+  </Accordion>
+
+  <Accordion title="Character set issues" icon="language">
+    Specify the charset in your connection string:
+    ```bash
+    DATABASE_URL="mysql://user:pass@localhost:3306/db?charset=utf8mb4"
+    ```
+  </Accordion>
+</AccordionGroup>
+
+### SQLite
+
+<AccordionGroup>
+  <Accordion title="Database is locked" icon="lock">
+    SQLite doesn't handle concurrent writes well. Ensure:
+    - Only one process is running migrations
+    - Close all connections before running migrations
+    - Use WAL mode for better concurrency:
+    ```sql
+    PRAGMA journal_mode=WAL;
+    ```
+  </Accordion>
+
+  <Accordion title="File path issues" icon="folder">
+    Use absolute paths or `./` prefix for SQLite files:
+    ```bash
+    # Relative path
+    DATABASE_URL="sqlite://./database.sqlite"
+
+    # Absolute path
+    DATABASE_URL="sqlite:///var/data/app.db"
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Debugging Tips
+
+### Enable Verbose Logging
+
+Check pending migrations with verbose output:
+```bash
+DATABASE_URL="your_url" geni status -v
+```
+
+This shows the actual SQL content of pending migrations.
+
+### Verify Migration State
+
+Check which migrations have been applied:
+```sql
+-- PostgreSQL, MySQL, MariaDB
+SELECT * FROM schema_migrations ORDER BY version;
+
+-- SQLite
+SELECT * FROM schema_migrations ORDER BY version;
+```
+
+### Test Migrations Locally
+
+1. Create a test database:
+```bash
+DATABASE_URL="postgres://localhost:5432/test_db" geni create
+```
+
+2. Run migrations:
+```bash
+DATABASE_URL="postgres://localhost:5432/test_db" geni up
+```
+
+3. Test rollback:
+```bash
+DATABASE_URL="postgres://localhost:5432/test_db" geni down -a 1
+```
+
+4. Clean up:
+```bash
+DATABASE_URL="postgres://localhost:5432/test_db" geni drop
+```
+
+### Validate Migration Files
+
+Before applying migrations, validate the SQL syntax:
+
+```bash
+# PostgreSQL
+psql -h localhost -U postgres -d your_db --dry-run -f migrations/123_migration.up.sql
+
+# MySQL
+mysql -h localhost -u root -p your_db --verbose --force < migrations/123_migration.up.sql
+```
+
+## Getting Help
+
+If you're still experiencing issues:
+
+1. Check the [GitHub issues](https://github.com/emilpriver/geni/issues) for similar problems
+2. Verify you're using the latest version: `geni --version`
+3. Review your database logs for detailed error messages
+4. Create a minimal reproduction case with a test database
+
+<Card title="Report an Issue" icon="github" href="https://github.com/emilpriver/geni/issues/new">
+  Found a bug or need help? Open an issue on GitHub with your database type, Geni version, and error message.
+</Card>

@@ -1,0 +1,170 @@
+---
+title: migate_down
+description: Rollback database migrations programmatically
+---
+
+## Function Signature
+
+```rust
+pub async fn migate_down(
+    database_url: String,
+    database_token: Option<String>,
+    migration_table: String,
+    migration_folder: String,
+    schema_file: String,
+    wait_timeout: Option<usize>,
+    dump_schema: bool,
+    rollback_amount: i64,
+) -> anyhow::Result<()>
+```
+
+## Description
+
+Rollbacks previously applied migrations by executing the corresponding `.down.sql` files. This function allows you to revert database changes by running rollback migrations in reverse order.
+
+<Note>
+The function name has a typo (`migate_down` instead of `migrate_down`). Use the actual function name as shown in the signature.
+</Note>
+
+## Parameters
+
+<ParamField path="database_url" type="String" required>
+  The database connection URL. Supports multiple database types:
+  - PostgreSQL: `postgres://user:password@host:port/database?sslmode=disable`
+  - MySQL: `mysql://root:password@localhost:3306/app`
+  - MariaDB: `mariadb://root:password@localhost:3307/app`
+  - SQLite: `sqlite://./database.sqlite`
+  - LibSQL/Turso: `https://your-database.turso.io`
+</ParamField>
+
+<ParamField path="database_token" type="Option<String>" required>
+  Authentication token for LibSQL/Turso databases. Use `None` for other database types or when authentication is not required.
+</ParamField>
+
+<ParamField path="migration_table" type="String" required>
+  Name of the table used to track applied migrations. Should match the table name used in `migrate_database`.
+</ParamField>
+
+<ParamField path="migration_folder" type="String" required>
+  Path to the directory containing migration files. Must contain the `.down.sql` files corresponding to applied migrations.
+</ParamField>
+
+<ParamField path="schema_file" type="String" required>
+  Name of the schema dump file to update after rollback. Example: `"schema.sql"`.
+</ParamField>
+
+<ParamField path="wait_timeout" type="Option<usize>" required>
+  Timeout in seconds to wait for the database to be ready. Use `Some(30)` for 30 seconds, or `None` for default timeout.
+</ParamField>
+
+<ParamField path="dump_schema" type="bool" required>
+  Whether to dump the database schema after successful rollback. Set to `true` to update the schema file, `false` to skip.
+</ParamField>
+
+<ParamField path="rollback_amount" type="i64" required>
+  Number of migrations to rollback. Use `1` to rollback the most recent migration, `2` for the last two migrations, etc.
+</ParamField>
+
+## Return Value
+
+Returns `Result<()>` which:
+- Returns `Ok(())` if the specified number of migrations were rolled back successfully
+- Returns `Err` if there was a connection error, migration file not found, or SQL execution error
+
+## Usage Example
+
+```rust
+use geni;
+
+#[tokio::main]
+async fn main() {
+    // Rollback the last migration
+    let result = geni::migate_down(
+        "sqlite://./test.db".to_string(),
+        None,
+        "schema_migrations".to_string(),
+        "./migrations".to_string(),
+        "schema.sql".to_string(),
+        Some(30),
+        true,
+        1, // Rollback 1 migration
+    )
+    .await;
+
+    match result {
+        Ok(_) => println!("Rollback successful"),
+        Err(e) => eprintln!("Rollback failed: {}", e),
+    }
+}
+```
+
+### Rollback Multiple Migrations
+
+```rust
+// Rollback the last 3 migrations
+geni::migate_down(
+    "postgres://postgres:password@127.0.0.1:5432/app?sslmode=disable".to_string(),
+    None,
+    "schema_migrations".to_string(),
+    "./migrations".to_string(),
+    "schema.sql".to_string(),
+    Some(30),
+    true,
+    3, // Rollback 3 migrations
+)
+.await
+.unwrap();
+```
+
+### LibSQL/Turso Example
+
+```rust
+geni::migate_down(
+    "https://my-database.turso.io".to_string(),
+    Some("your-auth-token".to_string()),
+    "schema_migrations".to_string(),
+    "./migrations".to_string(),
+    "schema.sql".to_string(),
+    Some(30),
+    false,
+    1,
+)
+.await
+.unwrap();
+```
+
+## Behavior
+
+- Retrieves the most recent applied migrations from the migration tracking table
+- Executes the corresponding `.down.sql` files in reverse chronological order
+- Rolls back the specified number of migrations (`rollback_amount`)
+- Each rollback runs in a transaction by default (unless `-- transaction:no` is specified)
+- Removes migration records from the tracking table after successful rollback
+- Optionally updates the schema dump file to reflect the current database state
+
+## Error Handling
+
+The function may return errors in these cases:
+- Database connection failure
+- No migrations available to rollback
+- Missing `.down.sql` file for a migration
+- Invalid SQL syntax in rollback migration files
+- Transaction rollback due to SQL errors
+- Attempting to rollback more migrations than exist
+
+## Important Notes
+
+<Warning>
+Rolling back migrations can result in data loss if the `.down.sql` file includes destructive operations like `DROP TABLE`. Ensure your rollback migrations are tested and you have backups before running in production.
+</Warning>
+
+- The `.down.sql` file should reverse the changes made by the corresponding `.up.sql` file
+- If a migration created a table, the rollback should drop that table
+- If a migration added columns, the rollback should remove those columns
+- Data modifications in migrations may not be reversible
+
+## See Also
+
+- [migrate_database](/api/migrate-database) - Apply migrations
+- [status_migrations](/api/status-migrations) - Check migration status
+- [new_migration](/api/new-migration) - Create new migration files

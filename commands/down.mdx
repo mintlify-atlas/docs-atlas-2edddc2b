@@ -1,0 +1,362 @@
+---
+title: "geni down"
+description: "Rollback database migrations to a previous state"
+---
+
+## Overview
+
+The `geni down` command rolls back previously applied migrations using the `.down.sql` files. This allows you to revert database changes when needed.
+
+## Usage
+
+```bash
+DATABASE_URL="<connection-string>" geni down
+```
+
+### With Amount Flag
+
+```bash
+DATABASE_URL="<connection-string>" geni down --amount 3
+DATABASE_URL="<connection-string>" geni down -a 3
+```
+
+## Flags
+
+<ParamField path="--amount" type="number" default="1" flag>
+  Number of migrations to rollback. Migrations are rolled back in reverse chronological order (newest first).
+  
+  **Aliases:** `-a`
+  
+  **Examples:**
+  - `--amount 1` - Rollback the most recent migration (default)
+  - `--amount 5` - Rollback the last 5 migrations
+  - `--amount 0` - Rollback nothing
+</ParamField>
+
+## Required Environment Variables
+
+<ParamField path="DATABASE_URL" type="string" required>
+  The database connection string. Format varies by database type.
+  
+  **Examples:**
+  - PostgreSQL: `postgres://user:password@localhost:5432/dbname?sslmode=disable`
+  - MySQL: `mysql://root:password@localhost:3306/app`
+  - MariaDB: `mariadb://root:password@localhost:3307/app`
+  - SQLite: `sqlite://./database.sqlite`
+  - LibSQL: `https://localhost:6000`
+</ParamField>
+
+## Optional Environment Variables
+
+<ParamField path="DATABASE_TOKEN" type="string" default="none">
+  Authentication token for LibSQL/Turso databases.
+</ParamField>
+
+<ParamField path="DATABASE_MIGRATIONS_FOLDER" type="string" default="./migrations">
+  Path to the directory containing migration files.
+</ParamField>
+
+<ParamField path="DATABASE_MIGRATIONS_TABLE" type="string" default="schema_migrations">
+  Name of the table used to track applied migrations.
+</ParamField>
+
+<ParamField path="DATABASE_SCHEMA_FILE" type="string" default="schema.sql">
+  Filename for the dumped database schema.
+</ParamField>
+
+<ParamField path="DATABASE_WAIT_TIMEOUT" type="number" default="30">
+  Number of seconds to wait for the database to be ready.
+</ParamField>
+
+<ParamField path="DATABASE_NO_DUMP_SCHEMA" type="boolean" default="false">
+  Set to `true` to disable automatic schema dumping after rollback.
+</ParamField>
+
+## How It Works
+
+1. **Connect** to the database
+2. **Retrieve** the list of applied migrations from the tracking table
+3. **Sort** migrations in reverse chronological order (newest first)
+4. **Select** the specified number of migrations to rollback
+5. **Find** the corresponding `.down.sql` files
+6. **Execute** each down migration
+7. **Remove** the migration record from the tracking table
+8. **Dump** the updated database schema (unless disabled)
+
+## Examples
+
+### Rollback One Migration (Default)
+
+Rollback the most recently applied migration:
+
+```bash
+DATABASE_URL="postgres://postgres:password@localhost:5432/app?sslmode=disable" geni down
+```
+
+**Output:**
+```
+Running rollback for 1709395300
+Success
+```
+
+### Rollback Multiple Migrations
+
+Rollback the last 3 migrations:
+
+```bash
+DATABASE_URL="postgres://localhost/app" geni down --amount 3
+```
+
+**Output:**
+```
+Running rollback for 1709395300
+Running rollback for 1709395245
+Running rollback for 1709395200
+Success
+```
+
+### Using Short Flag
+
+```bash
+DATABASE_URL="sqlite://./app.db" geni down -a 2
+```
+
+### SQLite Example
+
+```bash
+DATABASE_URL="sqlite://./database.sqlite" geni down
+```
+
+### LibSQL/Turso Example
+
+```bash
+DATABASE_URL="https://my-db-user.turso.io" \
+DATABASE_TOKEN="eyJhbGc..." \
+geni down -a 1
+```
+
+### Rollback All Migrations
+
+To rollback all applied migrations, specify a large number:
+
+```bash
+DATABASE_URL="postgres://localhost/app" geni down -a 999
+```
+
+<Warning>
+  This will rollback **all** migrations. Use with caution, especially in production environments.
+</Warning>
+
+## Rollback Order
+
+Migrations are always rolled back in reverse chronological order (newest first):
+
+```
+Applied migrations:    Rollback order:
+1709395200            ┌─ 1709395300 (rolled back first)
+1709395245            ├─ 1709395245 (rolled back second)
+1709395300            └─ 1709395200 (rolled back third)
+```
+
+## Transaction Behavior
+
+Like `geni up`, rollbacks run inside transactions by default. Each `.down.sql` file can disable transactions:
+
+```sql
+-- transaction:no
+DROP INDEX CONCURRENTLY idx_users_email;
+DROP TABLE users;
+```
+
+<Note>
+  If a rollback fails mid-transaction, the database state is preserved and the migration record remains in the tracking table. You can fix the `.down.sql` file and retry.
+</Note>
+
+## Error Handling
+
+### No Down Migration File
+
+```
+No rollback file found for 1709395300
+```
+
+**Cause**: The `.down.sql` file for a migration is missing.
+
+**Solution**: Ensure every applied migration has a corresponding `.down.sql` file in the migrations folder.
+
+### Rollback Failed
+
+```
+Running rollback for 1709395300
+Error: table "users" does not exist
+```
+
+**Cause**: The down migration SQL is incorrect or the database state doesn't match expectations.
+
+**Solution**: 
+1. Fix the `.down.sql` file
+2. Run `geni down` again
+3. The failed migration is still marked as applied, so it will retry
+
+### No Migrations to Rollback
+
+If no migrations are applied, `geni down` completes successfully without doing anything.
+
+## Writing Down Migrations
+
+Down migrations should reverse **all** changes from the up migration:
+
+### Up Migration
+
+```sql
+-- 1709395200_create_users.up.sql
+CREATE TABLE users (
+    id SERIAL PRIMARY KEY,
+    email VARCHAR(255) NOT NULL UNIQUE,
+    name VARCHAR(100),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_users_email ON users(email);
+
+INSERT INTO users (email, name) VALUES ('admin@example.com', 'Admin');
+```
+
+### Down Migration
+
+```sql
+-- 1709395200_create_users.down.sql
+DROP INDEX IF EXISTS idx_users_email;
+DROP TABLE IF EXISTS users;
+```
+
+<Note>
+  Use `IF EXISTS` in down migrations to make them idempotent and prevent errors if the migration was partially applied.
+</Note>
+
+## Testing Rollbacks
+
+Always test that your down migrations work correctly:
+
+```bash
+# Apply migration
+DATABASE_URL="sqlite://./test.db" geni up
+
+# Test rollback
+DATABASE_URL="sqlite://./test.db" geni down
+
+# Apply again to verify it's reversible
+DATABASE_URL="sqlite://./test.db" geni up
+```
+
+## Schema Dumping After Rollback
+
+After rolling back migrations, Geni updates the schema dump file to reflect the current database state:
+
+```bash
+DATABASE_URL="postgres://localhost/app" geni down -a 2
+# schema.sql is updated automatically
+```
+
+Disable schema dumping:
+
+```bash
+DATABASE_URL="postgres://localhost/app" \
+DATABASE_NO_DUMP_SCHEMA="true" \
+geni down
+```
+
+## Production Considerations
+
+<Warning>
+  Rolling back migrations in production can result in data loss. Always:
+  - **Backup the database** before rollback
+  - **Test rollbacks** in a staging environment first
+  - **Coordinate with your team** to avoid conflicts
+  - **Consider data implications** - rollbacks can delete data
+</Warning>
+
+### Safe Production Rollback
+
+```bash
+# 1. Backup database first
+pg_dump $DATABASE_URL > backup.sql
+
+# 2. Check which migrations will be rolled back
+DATABASE_URL="$DATABASE_URL" geni status
+
+# 3. Perform rollback
+DATABASE_URL="$DATABASE_URL" geni down -a 1
+
+# 4. Verify database state
+DATABASE_URL="$DATABASE_URL" geni status
+```
+
+## Docker Usage
+
+```bash
+docker run --rm -it --network=host \
+  -v "$(pwd)/migrations:/migrations" \
+  -e DATABASE_URL="postgres://localhost/app" \
+  ghcr.io/emilpriver/geni:latest down -a 2
+```
+
+## Best Practices
+
+- **Always write down migrations**: Every up migration should have a corresponding down migration
+- **Test rollbacks**: Verify that `geni down` works before deploying
+- **Use IF EXISTS**: Make down migrations idempotent with `DROP TABLE IF EXISTS`
+- **Consider data loss**: Down migrations may delete data - plan accordingly
+- **Rollback incrementally**: Use `-a 1` to rollback one migration at a time
+- **Backup first**: Always backup production databases before rollback
+- **Document destructive changes**: Note in comments if data will be lost
+
+## Common Patterns
+
+### Reverting a Failed Deployment
+
+```bash
+# Rollback the migrations from the failed deployment
+DATABASE_URL="$PROD_DB" geni down -a 3
+```
+
+### Testing Migration Reversibility
+
+```bash
+# Apply migration
+geni up
+
+# Immediately test rollback
+geni down
+
+# Re-apply to ensure it's repeatable
+geni up
+```
+
+### Cleaning Up Development Database
+
+```bash
+# Rollback all migrations
+DATABASE_URL="sqlite://./dev.db" geni down -a 999
+
+# Or drop and recreate
+DATABASE_URL="sqlite://./dev.db" geni drop
+DATABASE_URL="sqlite://./dev.db" geni create
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Apply Migrations" icon="arrow-up" href="/commands/up">
+    Re-apply migrations with `geni up`
+  </Card>
+  <Card title="Check Status" icon="list-check" href="/commands/status">
+    View migration status with `geni status`
+  </Card>
+  <Card title="Create Migration" icon="file-plus" href="/commands/new">
+    Create new migrations with `geni new`
+  </Card>
+  <Card title="Dump Schema" icon="file-export" href="/commands/dump">
+    Export current schema with `geni dump`
+  </Card>
+</CardGroup>

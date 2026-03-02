@@ -1,0 +1,838 @@
+---
+title: "Migration Workflow"
+description: "Recommended workflow for teams using Geni for database migrations"
+---
+
+## Team Collaboration
+
+Geni is designed to allow multiple developers to work on database migrations simultaneously without conflicts. This guide outlines best practices for team-based development.
+
+## Migration Naming Conventions
+
+### Timestamp-Based Naming
+
+Geni uses Unix timestamps to ensure migration order and prevent naming conflicts:
+
+```bash
+# Generate a migration
+geni new create_users_table
+
+# Creates two files:
+# 1709123456_create_users_table.up.sql
+# 1709123456_create_users_table.down.sql
+```
+
+The timestamp ensures:
+- **Unique names**: Even if two developers create migrations with the same name
+- **Chronological order**: Migrations run in the order they were created
+- **Merge safety**: Git can merge migrations from different branches without conflicts
+
+### Naming Best Practices
+
+Use descriptive, action-oriented names that explain the migration's purpose:
+
+<CodeGroup>
+```bash Table Operations
+# Creating tables
+geni new create_users_table
+geni new create_posts_table
+geni new create_comments_table
+
+# Dropping tables
+geni new drop_deprecated_logs_table
+```
+
+```bash Column Operations  
+# Adding columns
+geni new add_email_to_users
+geni new add_published_at_to_posts
+geni new add_indexes_to_users
+
+# Removing columns
+geni new remove_deprecated_status_from_users
+geni new drop_unused_columns_from_posts
+```
+
+```bash Data Operations
+# Data migrations
+geni new migrate_user_preferences_to_json
+geni new backfill_user_timestamps
+geni new populate_post_slugs
+
+# Schema changes
+geni new alter_users_email_unique_constraint
+geni new rename_posts_published_to_live
+```
+</CodeGroup>
+
+<Tip>
+  Include the table name in your migration name to make it easier to find related migrations.
+</Tip>
+
+## Development Workflow
+
+### Individual Developer Workflow
+
+<Steps>
+  <Step title="Create a feature branch">
+    ```bash
+    git checkout -b feature/add-user-profiles
+    ```
+  </Step>
+
+  <Step title="Generate the migration">
+    ```bash
+    DATABASE_URL="postgres://localhost:5432/dev" geni new create_profiles_table
+    ```
+    
+    This creates:
+    - `migrations/1709123456_create_profiles_table.up.sql`
+    - `migrations/1709123456_create_profiles_table.down.sql`
+  </Step>
+
+  <Step title="Write the migration SQL">
+    ```sql migrations/1709123456_create_profiles_table.up.sql
+    CREATE TABLE profiles (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        bio TEXT,
+        avatar_url VARCHAR(500),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE INDEX idx_profiles_user_id ON profiles(user_id);
+    ```
+
+    ```sql migrations/1709123456_create_profiles_table.down.sql
+    DROP INDEX IF EXISTS idx_profiles_user_id;
+    DROP TABLE IF EXISTS profiles;
+    ```
+  </Step>
+
+  <Step title="Test locally">
+    ```bash
+    # Apply the migration
+    DATABASE_URL="postgres://localhost:5432/dev" geni up
+
+    # Verify it worked
+    psql postgres://localhost:5432/dev -c "\dt profiles"
+
+    # Test rollback
+    DATABASE_URL="postgres://localhost:5432/dev" geni down -a 1
+
+    # Re-apply to ensure it's idempotent
+    DATABASE_URL="postgres://localhost:5432/dev" geni up
+    ```
+  </Step>
+
+  <Step title="Commit the migration">
+    ```bash
+    git add migrations/1709123456_create_profiles_table.*
+    git commit -m "Add profiles table migration"
+    git push origin feature/add-user-profiles
+    ```
+  </Step>
+</Steps>
+
+### Team Collaboration Workflow
+
+#### Scenario: Multiple Developers Working Simultaneously
+
+**Developer A** creates a migration:
+```bash
+# On branch: feature/user-roles
+geni new create_roles_table
+# Creates: 1709123456_create_roles_table.up.sql
+```
+
+**Developer B** creates a different migration:
+```bash
+# On branch: feature/post-tags  
+geni new create_tags_table
+# Creates: 1709123500_create_tags_table.up.sql  (different timestamp)
+```
+
+When merging both branches:
+```bash
+git merge feature/user-roles
+git merge feature/post-tags
+```
+
+Both migrations coexist without conflict because:
+- They have different timestamps
+- They'll run in chronological order: roles → tags
+- No manual conflict resolution needed
+
+<Note>
+  The timestamp-based naming is what makes Geni work well for collaborative teams - no coordination needed between developers.
+</Note>
+
+### Handling Migration Dependencies
+
+If Developer B's migration depends on Developer A's:
+
+<Steps>
+  <Step title="Coordinate timing">
+    Developer B waits for Developer A's branch to be merged to `main`.
+  </Step>
+
+  <Step title="Pull latest changes">
+    ```bash
+    git checkout main
+    git pull origin main
+    ```
+  </Step>
+
+  <Step title="Apply base migrations">
+    ```bash
+    DATABASE_URL="postgres://localhost:5432/dev" geni up
+    ```
+  </Step>
+
+  <Step title="Create dependent migration">
+    ```bash
+    git checkout -b feature/user-role-assignments
+    geni new create_user_roles_table
+    ```
+
+    ```sql migrations/1709123600_create_user_roles_table.up.sql
+    CREATE TABLE user_roles (
+        user_id INTEGER REFERENCES users(id),
+        role_id INTEGER REFERENCES roles(id),  -- Depends on Developer A's migration
+        PRIMARY KEY (user_id, role_id)
+    );
+    ```
+  </Step>
+</Steps>
+
+## Branch Management Strategies
+
+### Strategy 1: Feature Branch Per Migration
+
+**When to use:** Small teams, simple changes
+
+```bash
+feature/add-user-email-index
+├── migrations/
+│   ├── 1709123456_add_email_index.up.sql
+│   └── 1709123456_add_email_index.down.sql
+└── (related code changes)
+```
+
+**Pros:**
+- Clear 1:1 mapping between feature and migration
+- Easy to review
+- Simple to rollback
+
+**Cons:**
+- Many small PRs
+- More merges to coordinate
+
+### Strategy 2: Feature Branch With Multiple Migrations
+
+**When to use:** Complex features requiring multiple schema changes
+
+```bash
+feature/user-authentication
+├── migrations/
+│   ├── 1709123456_create_users_table.up.sql
+│   ├── 1709123456_create_users_table.down.sql
+│   ├── 1709123500_add_password_hash_to_users.up.sql
+│   ├── 1709123500_add_password_hash_to_users.down.sql
+│   ├── 1709123600_create_sessions_table.up.sql
+│   └── 1709123600_create_sessions_table.down.sql
+└── (application code for authentication)
+```
+
+**Pros:**
+- All related changes in one PR
+- Easier to review as a unit
+- Natural migration order
+
+**Cons:**
+- Larger PRs take longer to review
+- More potential for conflicts
+
+### Strategy 3: Migration-Only Branch
+
+**When to use:** Database refactoring, performance optimization
+
+```bash
+refactor/optimize-user-indexes
+├── migrations/
+│   ├── 1709123456_add_composite_index_users.up.sql
+│   ├── 1709123456_add_composite_index_users.down.sql
+│   ├── 1709123500_drop_unused_indexes.up.sql
+│   └── 1709123500_drop_unused_indexes.down.sql
+└── (no code changes, schema only)
+```
+
+**Pros:**
+- Database changes isolated from code
+- Can be deployed independently
+- Focused reviews on schema design
+
+**Cons:**
+- May require coordinating with code changes
+
+## Testing Strategies
+
+### Local Testing Checklist
+
+Before pushing migrations, verify:
+
+<AccordionGroup>
+  <Accordion title="✅ Migration applies successfully" icon="check">
+    ```bash
+    DATABASE_URL="postgres://localhost:5432/dev" geni up
+    # Should complete without errors
+    ```
+  </Accordion>
+
+  <Accordion title="✅ Rollback works correctly" icon="rotate-left">
+    ```bash
+    DATABASE_URL="postgres://localhost:5432/dev" geni down -a 1
+    # Should cleanly reverse all changes
+    ```
+  </Accordion>
+
+  <Accordion title="✅ Re-application succeeds" icon="arrows-rotate">
+    ```bash
+    DATABASE_URL="postgres://localhost:5432/dev" geni up
+    # Should work after rolling back
+    ```
+  </Accordion>
+
+  <Accordion title="✅ Schema matches expectations" icon="database">
+    ```bash
+    psql postgres://localhost:5432/dev -c "\d table_name"
+    # Verify column types, constraints, indexes
+    ```
+  </Accordion>
+
+  <Accordion title="✅ Application code works" icon="code">
+    Run your application's test suite with the new schema:
+    ```bash
+    npm test  # or cargo test, pytest, etc.
+    ```
+  </Accordion>
+</AccordionGroup>
+
+### CI/CD Testing
+
+Automate migration testing in your CI pipeline:
+
+<CodeGroup>
+```yaml GitHub Actions
+name: Test Migrations
+
+on:
+  pull_request:
+    paths:
+      - 'migrations/**'
+      - '.github/workflows/migrations.yml'
+
+jobs:
+  test-migrations:
+    runs-on: ubuntu-latest
+    
+    strategy:
+      matrix:
+        database:
+          - postgres:15
+          - postgres:14
+          - mysql:8.0
+    
+    services:
+      db:
+        image: ${{ matrix.database }}
+        env:
+          POSTGRES_PASSWORD: postgres
+          MYSQL_ROOT_PASSWORD: mysql
+        options: >-
+          --health-cmd "pg_isready || mysqladmin ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Install Geni
+        run: |
+          curl -fsSL -o geni https://github.com/emilpriver/geni/releases/latest/download/geni-linux-amd64
+          chmod +x geni
+          sudo mv geni /usr/local/bin/
+      
+      - name: Test Up Migrations
+        run: |
+          if [[ "${{ matrix.database }}" == postgres* ]]; then
+            export DATABASE_URL="postgres://postgres:postgres@localhost:5432/test"
+          else
+            export DATABASE_URL="mysql://root:mysql@localhost:3306/test"
+          fi
+          
+          geni create
+          geni up
+          geni status
+      
+      - name: Test Down Migrations
+        run: |
+          if [[ "${{ matrix.database }}" == postgres* ]]; then
+            export DATABASE_URL="postgres://postgres:postgres@localhost:5432/test"
+          else
+            export DATABASE_URL="mysql://root:mysql@localhost:3306/test"
+          fi
+          
+          # Rollback all migrations
+          MIGRATION_COUNT=$(geni status | wc -l)
+          geni down -a $MIGRATION_COUNT
+      
+      - name: Test Re-application
+        run: |
+          if [[ "${{ matrix.database }}" == postgres* ]]; then
+            export DATABASE_URL="postgres://postgres:postgres@localhost:5432/test"
+          else
+            export DATABASE_URL="mysql://root:mysql@localhost:3306/test"
+          fi
+          
+          geni up
+```
+
+```yaml GitLab CI
+test-migrations:
+  stage: test
+  image: ghcr.io/emilpriver/geni:latest
+  
+  services:
+    - postgres:15-alpine
+  
+  variables:
+    DATABASE_URL: "postgres://postgres:postgres@postgres:5432/test"
+    POSTGRES_DB: test
+    POSTGRES_PASSWORD: postgres
+  
+  script:
+    # Test up
+    - geni create
+    - geni up
+    - geni status
+    
+    # Test down
+    - geni down -a 10
+    
+    # Test re-application
+    - geni up
+  
+  only:
+    changes:
+      - migrations/**/*
+```
+</CodeGroup>
+
+## Rollback Procedures
+
+### Planning for Rollbacks
+
+Every deployment should have a rollback plan:
+
+<Steps>
+  <Step title="Document migration impact">
+    In your PR description:
+    ```markdown
+    ## Migration: Add user_preferences table
+    
+    **Changes:**
+    - Creates new table `user_preferences`
+    - Adds foreign key to `users.id`
+    
+    **Rollback:**
+    - Safe to rollback: Yes
+    - Command: `geni down -a 1`
+    - Impact: User preferences feature will be unavailable
+    ```
+  </Step>
+
+  <Step title="Test rollback locally">
+    ```bash
+    # Apply migration
+    geni up
+    
+    # Add some test data
+    psql $DATABASE_URL -c "INSERT INTO user_preferences ..."
+    
+    # Rollback
+    geni down -a 1
+    
+    # Verify table is gone
+    psql $DATABASE_URL -c "\dt user_preferences"  # Should error
+    ```
+  </Step>
+
+  <Step title="Document destructive operations">
+    For migrations that drop data:
+    ```sql migrations/1709123456_drop_old_logs.up.sql
+    -- WARNING: This migration drops data
+    -- Before running in production:
+    -- 1. Backup the logs table
+    -- 2. Verify data is no longer needed
+    -- 3. Get approval from team lead
+    
+    DROP TABLE IF EXISTS old_logs;
+    ```
+  </Step>
+</Steps>
+
+### Executing Rollbacks
+
+#### Rollback Last Migration
+
+```bash
+# Production rollback
+DATABASE_URL="$PRODUCTION_URL" geni down -a 1
+```
+
+#### Rollback Multiple Migrations
+
+```bash
+# Check what's applied
+DATABASE_URL="$PRODUCTION_URL" geni status
+
+# Rollback last 3 migrations
+DATABASE_URL="$PRODUCTION_URL" geni down -a 3
+```
+
+#### Emergency Rollback
+
+If a migration causes production issues:
+
+<Steps>
+  <Step title="Stop application deployments">
+    Prevent new application code from deploying while you fix the database.
+  </Step>
+
+  <Step title="Verify the issue">
+    ```bash
+    # Check database logs
+    # Check application error logs
+    # Identify which migration caused the problem
+    ```
+  </Step>
+
+  <Step title="Execute rollback">
+    ```bash
+    DATABASE_URL="$PRODUCTION_URL" geni down -a 1
+    ```
+  </Step>
+
+  <Step title="Verify recovery">
+    - Check application health
+    - Verify database queries work
+    - Monitor error rates
+  </Step>
+
+  <Step title="Fix and redeploy">
+    - Fix the migration locally
+    - Test thoroughly
+    - Create new migration (don't modify the old one)
+    - Deploy when ready
+  </Step>
+</Steps>
+
+<Warning>
+  Never modify an already-applied migration. Always create a new migration to fix issues.
+</Warning>
+
+## Production Deployment
+
+### Pre-Deployment Checklist
+
+Before deploying migrations to production:
+
+- [ ] Migrations tested in development
+- [ ] Migrations tested in staging environment
+- [ ] Down migrations tested and verified
+- [ ] Performance impact assessed (for large tables)
+- [ ] Rollback plan documented
+- [ ] Team notified of deployment window
+- [ ] Database backup confirmed recent and valid
+- [ ] Monitoring alerts configured
+
+### Deployment Methods
+
+#### Method 1: Manual Deployment
+
+```bash
+# 1. Backup the database
+pg_dump $PRODUCTION_URL > backup_$(date +%Y%m%d_%H%M%S).sql
+
+# 2. Check pending migrations
+DATABASE_URL="$PRODUCTION_URL" geni status
+
+# 3. Apply migrations
+DATABASE_URL="$PRODUCTION_URL" geni up
+
+# 4. Verify success
+DATABASE_URL="$PRODUCTION_URL" geni status
+```
+
+#### Method 2: Automated via CI/CD
+
+```yaml .github/workflows/deploy.yml
+name: Deploy to Production
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Install Geni
+        run: |
+          curl -fsSL -o geni https://github.com/emilpriver/geni/releases/latest/download/geni-linux-amd64
+          chmod +x geni
+      
+      - name: Run Migrations
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+        run: |
+          ./geni up
+      
+      - name: Deploy Application
+        run: |
+          # Your deployment steps
+          ./deploy-app.sh
+```
+
+#### Method 3: As Part of Application Startup
+
+```rust src/main.rs
+use geni;
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    // Run migrations automatically on startup
+    println!("Running database migrations...");
+    
+    geni::migrate_database(
+        std::env::var("DATABASE_URL")?,
+        None,
+        "schema_migrations".to_string(),
+        "./migrations".to_string(),
+        "schema.sql".to_string(),
+        Some(30),
+        false,  // Don't dump schema in production
+    )
+    .await?;
+    
+    println!("Migrations complete. Starting application...");
+    
+    // Start your application
+    Ok(())
+}
+```
+
+<Warning>
+  When using startup migrations with multiple application instances, ensure only one instance runs migrations (use a leader election mechanism or a separate migration job).
+</Warning>
+
+## Multi-Environment Strategy
+
+### Environment Progression
+
+Migrations should flow through environments:
+
+```mermaid
+Development → Staging → Production
+```
+
+<Steps>
+  <Step title="Development">
+    Developers test migrations locally:
+    ```bash
+    DATABASE_URL="postgres://localhost:5432/dev" geni up
+    ```
+  </Step>
+
+  <Step title="CI/CD Testing">
+    Automated tests run on every PR:
+    ```yaml
+    test:
+      DATABASE_URL: postgres://test:test@localhost:5432/ci_test
+    ```
+  </Step>
+
+  <Step title="Staging">
+    Deploy to staging environment:
+    ```bash
+    DATABASE_URL="$STAGING_URL" geni up
+    # Run integration tests
+    # Perform manual QA
+    ```
+  </Step>
+
+  <Step title="Production">
+    Only after staging verification:
+    ```bash
+    DATABASE_URL="$PRODUCTION_URL" geni up
+    ```
+  </Step>
+</Steps>
+
+### Configuration Per Environment
+
+<CodeGroup>
+```bash config/development.env
+DATABASE_URL=postgres://localhost:5432/app_dev
+DATABASE_MIGRATIONS_FOLDER=./migrations
+DATABASE_WAIT_TIMEOUT=30
+# Enable schema dumps locally
+```
+
+```bash config/staging.env
+DATABASE_URL=postgres://staging-db:5432/app_staging?sslmode=require
+DATABASE_MIGRATIONS_FOLDER=./migrations
+DATABASE_WAIT_TIMEOUT=60
+DATABASE_SCHEMA_FILE=schema.sql
+```
+
+```bash config/production.env
+DATABASE_URL=postgres://prod-db:5432/app_prod?sslmode=require
+DATABASE_MIGRATIONS_FOLDER=./migrations  
+DATABASE_WAIT_TIMEOUT=60
+DATABASE_NO_DUMP_SCHEMA=true  # Don't dump in production
+```
+</CodeGroup>
+
+## Code Review Guidelines
+
+When reviewing migration PRs:
+
+### What to Check
+
+<AccordionGroup>
+  <Accordion title="Schema correctness" icon="database">
+    - Column types are appropriate
+    - Constraints are correct (NOT NULL, UNIQUE, etc.)
+    - Foreign keys have proper ON DELETE/ON UPDATE actions
+    - Indexes are on the right columns
+  </Accordion>
+
+  <Accordion title="Migration reversibility" icon="arrows-rotate">
+    - Down migration completely reverses up migration
+    - Drop operations use IF EXISTS
+    - Create operations use IF NOT EXISTS
+  </Accordion>
+
+  <Accordion title="Performance impact" icon="gauge-high">
+    - Large table alterations use appropriate strategy
+    - Indexes created concurrently when needed
+    - Data migrations are batched
+  </Accordion>
+
+  <Accordion title="Naming conventions" icon="tag">
+    - Migration name is descriptive
+    - Follows team naming patterns
+    - Timestamp is reasonable (not backdated)
+  </Accordion>
+
+  <Accordion title="Transaction handling" icon="arrows-turn-to-dots">
+    - Transactions disabled when necessary (CONCURRENTLY, etc.)
+    - Default transaction behavior appropriate
+  </Accordion>
+</AccordionGroup>
+
+### Review Checklist Template
+
+```markdown
+## Migration Review Checklist
+
+- [ ] Migration name is descriptive
+- [ ] Up migration SQL is correct
+- [ ] Down migration properly reverses changes
+- [ ] Transaction handling is appropriate
+- [ ] No data loss risk (or documented/approved)
+- [ ] Performance impact assessed
+- [ ] Works on all supported databases (if multi-DB)
+- [ ] Related code changes included/coordinated
+- [ ] Tests updated for schema changes
+```
+
+## Troubleshooting Team Issues
+
+### Merge Conflicts in Migrations
+
+**Rarely happens** because timestamps are unique, but if it does:
+
+```bash
+# Two developers created migrations at the same second (unlikely)
+git status
+# both modified: migrations/1709123456_different_names.up.sql
+
+# Resolution: Rename one migration
+mv migrations/1709123456_second.up.sql migrations/1709123457_second.up.sql
+mv migrations/1709123456_second.down.sql migrations/1709123457_second.down.sql
+
+git add migrations/
+git commit -m "Resolve migration timestamp conflict"
+```
+
+### Out-of-Order Migrations
+
+If Developer B's migration was created before Developer A's, but A's was merged first:
+
+```bash
+# B's migration: 1709123456 (older timestamp)
+# A's migration: 1709123500 (newer timestamp, but merged first)
+
+# When B merges, their migration runs first (correct!)
+# Geni tracks which have been applied, order is maintained
+```
+
+This is **not a problem** - Geni handles it automatically.
+
+<Note>
+  Geni runs migrations in timestamp order, not merge order. This ensures consistency across all environments.
+</Note>
+
+## Summary
+
+### Key Takeaways
+
+1. **Timestamp-based naming eliminates conflicts** between team members
+2. **Always write down migrations** for every up migration
+3. **Test locally** before pushing: up, down, and up again
+4. **Never modify applied migrations** - create new ones to fix issues
+5. **Run migrations before code** in deployments
+6. **Document rollback procedures** for every migration
+7. **Use CI/CD** to automatically test migrations
+
+### Quick Commands Reference
+
+```bash
+# Development workflow
+geni new feature_name              # Create migration
+geni up                            # Apply migrations
+geni down -a 1                     # Test rollback
+geni status                        # Check what's pending
+
+# Team workflow  
+git pull origin main               # Get latest migrations
+geni up                            # Apply team's migrations
+geni new my_feature                # Create your migration
+git add migrations/*
+git commit -m "Add my migration"
+git push
+
+# Production deployment
+geni status                        # Check pending
+geni up                            # Apply to production
+```

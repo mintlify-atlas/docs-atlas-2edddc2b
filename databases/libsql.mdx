@@ -1,0 +1,390 @@
+---
+title: "LibSQL"
+description: "Use Geni with LibSQL and Turso databases"
+icon: "database"
+---
+
+Geni provides full support for LibSQL, a fork of SQLite designed for distributed and edge deployments. LibSQL is commonly used with Turso for serverless SQLite databases.
+
+## Connection URL Format
+
+LibSQL requires remote database URLs using HTTP/HTTPS protocols:
+
+```bash
+http://localhost:8080
+https://my-database.turso.io
+libsql://remote-host.example.com
+```
+
+<Warning>
+  The `libsql://` scheme is only for remote databases. For local SQLite files, use the [SQLite driver](/databases/sqlite) with `sqlite://` instead.
+</Warning>
+
+## Setup
+
+<Steps>
+<Step title="Set your database URL and token">
+  ```bash
+  export DATABASE_URL="https://my-database.turso.io"
+  export DATABASE_TOKEN="your-auth-token"
+  ```
+
+  <Note>
+    The token is optional for local LibSQL instances but required for Turso.
+  </Note>
+</Step>
+
+<Step title="Create your first migration">
+  ```bash
+  geni new create_users_table
+  ```
+</Step>
+
+<Step title="Run migrations">
+  ```bash
+  geni up
+  ```
+</Step>
+</Steps>
+
+## Configuration Examples
+
+<Tabs>
+  <Tab title="Turso">
+    ```bash
+    # Get your database URL from Turso CLI or dashboard
+    DATABASE_URL="https://my-db-user.turso.io"
+    DATABASE_TOKEN="eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9..."
+    DATABASE_MIGRATIONS_FOLDER="./migrations"
+    ```
+  </Tab>
+
+  <Tab title="Local LibSQL Server">
+    ```bash
+    DATABASE_URL="http://localhost:8080"
+    # No token needed for local development
+    DATABASE_MIGRATIONS_TABLE="schema_migrations"
+    ```
+  </Tab>
+
+  <Tab title="Self-Hosted LibSQL">
+    ```bash
+    DATABASE_URL="https://libsql.example.com"
+    DATABASE_TOKEN="your-custom-token"
+    DATABASE_WAIT_TIMEOUT="60"
+    DATABASE_SCHEMA_FILE="schema.sql"
+    ```
+  </Tab>
+</Tabs>
+
+## Features
+
+### Authentication
+
+LibSQL supports token-based authentication. If no token is provided, Geni uses an empty string (source: `libsql.rs:26-31`):
+
+```rust
+let auth_token = if let Some(t) = token {
+    t
+} else {
+    info!("Token is not set, using empty string");
+    "".to_string()
+};
+```
+
+### Transaction Support
+
+LibSQL migrations run in transactions by default using `execute_transactional_batch`. To disable transactions:
+
+```sql
+-- transaction:no
+PRAGMA foreign_keys = ON;
+```
+
+### Schema Dumping
+
+Geni automatically dumps your LibSQL schema after each successful migration by querying `sqlite_master`:
+
+```sql
+SELECT sql FROM sqlite_master
+```
+
+The schema dump includes:
+- Tables
+- Indexes
+- Views
+- Triggers
+
+No external binaries required (source: `libsql.rs:196-214`).
+
+### Connection Check
+
+Unlike SQLite, LibSQL supports connection readiness checks:
+
+```rust
+self.db.execute("SELECT 1", params![]).await?;
+```
+
+This is useful when using `DATABASE_WAIT_TIMEOUT` (source: `libsql.rs:170-177`).
+
+## Database Operations
+
+### Create Database
+
+Not supported. Create databases through Turso CLI or your LibSQL provider:
+
+```bash
+# Turso example
+turso db create my-database
+```
+
+```bash
+# Geni will error if you try
+geni create
+# Error: Geni does not support creating a database, it should be done via the respective interface
+```
+
+### Drop Database
+
+Not supported. Drop databases through your provider's interface:
+
+```bash
+geni drop
+# Error: Geni does not support dropping a database, it should be done via the respective interface
+```
+
+### Check Status
+
+```bash
+geni status
+```
+
+## Limitations
+
+### No Database Management
+
+LibSQL databases must be created and dropped through your provider's interface (Turso CLI, web dashboard, etc.). Geni only handles migrations (source: `libsql.rs:149-167`).
+
+### Remote Only
+
+The `libsql://` scheme cannot be used for local file paths. This validation prevents common mistakes:
+
+```rust
+if !db_url.starts_with("libsql://./") {
+    // OK: remote URL
+} else {
+    bail!("libsql:// should only be used with remote database. Use sqlite:// protocol when running local sqlite files")
+}
+```
+
+Source: `libsql.rs:25-38`
+
+### Token Security
+
+Tokens are sensitive credentials. Always:
+- Store tokens in environment variables, never in code
+- Use secret management in CI/CD (GitHub Secrets, etc.)
+- Rotate tokens periodically
+- Use different tokens for development and production
+
+## Examples
+
+### Basic Migration
+
+Create a table in `20240115120000_create_users.up.sql`:
+
+```sql
+CREATE TABLE users (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  email TEXT NOT NULL UNIQUE,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_users_email ON users(email);
+```
+
+Rollback in `20240115120000_create_users.down.sql`:
+
+```sql
+DROP TABLE IF EXISTS users;
+```
+
+### LibSQL-Specific Features
+
+LibSQL supports SQLite syntax plus some extensions:
+
+```sql
+-- Enable foreign keys
+PRAGMA foreign_keys = ON;
+
+-- Create table with JSON support
+CREATE TABLE events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  event_type TEXT NOT NULL,
+  payload TEXT,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Create index on JSON field
+CREATE INDEX idx_events_type ON events(event_type);
+
+-- Create virtual table for full-text search
+CREATE VIRTUAL TABLE events_fts USING fts5(
+  event_type,
+  payload,
+  content='events',
+  content_rowid='id'
+);
+```
+
+### Turso Integration
+
+Using Geni with Turso in a deployment workflow:
+
+```yaml
+name: Deploy with Migrations
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run migrations
+        uses: emilpriver/geni@main
+        with:
+          database_url: ${{ secrets.TURSO_DATABASE_URL }}
+          database_token: ${{ secrets.TURSO_AUTH_TOKEN }}
+          migrations_folder: "./migrations"
+```
+
+### Library Usage
+
+Using Geni programmatically with LibSQL:
+
+```rust
+use geni;
+
+#[tokio::main]
+async fn main() {
+    let db_url = std::env::var("DATABASE_URL")
+        .expect("DATABASE_URL must be set");
+    let db_token = std::env::var("DATABASE_TOKEN").ok();
+
+    geni::migrate_database(
+        db_url,
+        db_token,
+        "schema_migrations".to_string(),
+        "./migrations".to_string(),
+        "schema.sql".to_string(),
+        Some(30),
+        false, // Disable schema dump if not needed
+    )
+    .await
+    .unwrap();
+}
+```
+
+## Troubleshooting
+
+### Authentication Errors
+
+If you see authentication errors:
+
+- Verify your `DATABASE_TOKEN` is correct
+- Check token hasn't expired
+- Ensure token has appropriate permissions
+- For Turso, regenerate token: `turso db tokens create my-database`
+
+### Connection Issues
+
+If migrations fail to connect:
+
+- Verify the database URL is correct
+- Check network connectivity to the LibSQL server
+- Ensure the database exists (create via Turso CLI if needed)
+- Try increasing `DATABASE_WAIT_TIMEOUT`
+
+### URL Scheme Errors
+
+If you see "libsql:// should only be used with remote database":
+
+- Use `sqlite://` for local files
+- Use `http://`, `https://`, or `libsql://` for remote databases
+- Check for typos in the URL
+
+### Migration Table
+
+Geni creates a `schema_migrations` table:
+
+```sql
+CREATE TABLE IF NOT EXISTS schema_migrations (
+  id VARCHAR(255) NOT NULL PRIMARY KEY
+);
+```
+
+You can customize the table name:
+
+```bash
+DATABASE_MIGRATIONS_TABLE="custom_migrations" geni up
+```
+
+## Best Practices
+
+- Store tokens in environment variables or secret managers
+- Use different databases for development, staging, and production
+- Enable foreign keys in migrations: `PRAGMA foreign_keys = ON`
+- Test migrations locally with SQLite before deploying to LibSQL
+- Keep schema dump in version control for collaboration
+- Use Turso CLI for database creation and management
+
+## Turso Quick Start
+
+Setup with Turso in 3 steps:
+
+<Steps>
+<Step title="Create a Turso database">
+  ```bash
+  turso db create my-app-db
+  ```
+</Step>
+
+<Step title="Get credentials">
+  ```bash
+  # Get database URL
+  turso db show my-app-db --url
+
+  # Create auth token
+  turso db tokens create my-app-db
+  ```
+</Step>
+
+<Step title="Run migrations">
+  ```bash
+  export DATABASE_URL="https://my-app-db-user.turso.io"
+  export DATABASE_TOKEN="eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9..."
+  geni up
+  ```
+</Step>
+</Steps>
+
+## When to Use LibSQL
+
+**Good for:**
+- Serverless applications
+- Edge deployments
+- Globally distributed databases
+- Applications using Turso
+- SQLite compatibility with remote access
+- Low-latency edge reads
+
+**Not ideal for:**
+- Local development (use SQLite instead)
+- Applications without network access
+- Use cases requiring traditional SQL servers
+
+For local SQLite databases, see [SQLite](/databases/sqlite).

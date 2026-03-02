@@ -1,0 +1,247 @@
+---
+title: drop_database
+description: Drop an existing database programmatically
+---
+
+## Function Signature
+
+```rust
+pub async fn drop_database(
+    database_url: String,
+    database_token: Option<String>,
+    migration_table: String,
+    migration_folder: String,
+    schema_file: String,
+    wait_timeout: Option<usize>,
+) -> anyhow::Result<()>
+```
+
+## Description
+
+Drops (deletes) an existing database. This is a destructive operation that permanently removes the database and all its data.
+
+<Warning>
+This operation is irreversible and will delete all data in the database. Use with extreme caution, especially in production environments. Always ensure you have backups before dropping a database.
+</Warning>
+
+## Parameters
+
+<ParamField path="database_url" type="String" required>
+  The database connection URL. The database name specified in the URL will be dropped:
+  - PostgreSQL: `postgres://user:password@host:port/database_name?sslmode=disable`
+  - MySQL: `mysql://root:password@localhost:3306/database_name`
+  - MariaDB: `mariadb://root:password@localhost:3307/database_name`
+  - SQLite: `sqlite://./database.sqlite` (file will be deleted)
+  - LibSQL: Should be dropped using the LibSQL/Turso interface
+</ParamField>
+
+<ParamField path="database_token" type="Option<String>" required>
+  Authentication token for LibSQL/Turso databases. Use `None` for other database types.
+</ParamField>
+
+<ParamField path="migration_table" type="String" required>
+  Name of the migrations tracking table. This parameter is required for consistency but won't matter since the database will be deleted.
+</ParamField>
+
+<ParamField path="migration_folder" type="String" required>
+  Path to the migration files directory. Required for consistency with other operations.
+</ParamField>
+
+<ParamField path="schema_file" type="String" required>
+  Name of the schema dump file. Required for consistency with other operations.
+</ParamField>
+
+<ParamField path="wait_timeout" type="Option<usize>" required>
+  Timeout in seconds to wait for the database server to be ready. Use `Some(30)` for 30 seconds, or `None` for default timeout.
+</ParamField>
+
+## Return Value
+
+Returns `Result<()>` which:
+- Returns `Ok(())` if the database was dropped successfully
+- Returns `Err` if there was a connection error, permission issue, or the database doesn't exist
+
+## Usage Example
+
+```rust
+use geni;
+
+#[tokio::main]
+async fn main() {
+    // Drop a SQLite database
+    let result = geni::drop_database(
+        "sqlite://./test.db".to_string(),
+        None,
+        "schema_migrations".to_string(),
+        "./migrations".to_string(),
+        "schema.sql".to_string(),
+        Some(30),
+    )
+    .await;
+
+    match result {
+        Ok(_) => println!("Database dropped successfully"),
+        Err(e) => eprintln!("Failed to drop database: {}", e),
+    }
+}
+```
+
+### PostgreSQL Example
+
+```rust
+// Drop a PostgreSQL database
+geni::drop_database(
+    "postgres://postgres:password@127.0.0.1:5432/old_database?sslmode=disable".to_string(),
+    None,
+    "schema_migrations".to_string(),
+    "./migrations".to_string(),
+    "schema.sql".to_string(),
+    Some(30),
+)
+.await
+.unwrap();
+```
+
+### MySQL Example
+
+```rust
+// Drop a MySQL database
+geni::drop_database(
+    "mysql://root:password@localhost:3306/old_database".to_string(),
+    None,
+    "schema_migrations".to_string(),
+    "./migrations".to_string(),
+    "schema.sql".to_string(),
+    Some(30),
+)
+.await
+.unwrap();
+```
+
+## Database-Specific Behavior
+
+### PostgreSQL, MySQL, MariaDB
+- Connects to the database server
+- Terminates any active connections to the database
+- Drops the database and all its contents
+- All tables, views, functions, and data are permanently deleted
+
+### SQLite
+- Deletes the database file from the filesystem
+- The file path is determined from the database URL
+- Any associated WAL (Write-Ahead Logging) files are also removed
+
+### LibSQL/Turso
+- LibSQL databases should be dropped using the Turso CLI or web interface
+- Use the Turso CLI: `turso db destroy <database-name>`
+- This function may not work for cloud-hosted LibSQL databases
+
+## Error Handling
+
+The function may return errors in these cases:
+- Database server is unreachable
+- Insufficient permissions to drop the database
+- Database doesn't exist
+- Active connections preventing database deletion
+- File system errors (for SQLite)
+
+## Safe Deletion Pattern
+
+Here's a recommended pattern for safely dropping a database with user confirmation:
+
+```rust
+use geni;
+use std::io::{self, Write};
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    let db_url = "postgres://postgres:password@localhost:5432/myapp?sslmode=disable".to_string();
+    
+    // Prompt for confirmation
+    print!("Are you sure you want to drop the database? (yes/no): ");
+    io::stdout().flush()?;
+    
+    let mut input = String::new();
+    io::stdin().read_line(&mut input)?;
+    
+    if input.trim().to_lowercase() == "yes" {
+        // Optional: Create a backup first
+        geni::dump_database(
+            db_url.clone(),
+            None,
+            "schema_migrations".to_string(),
+            "./migrations".to_string(),
+            "backup_schema.sql".to_string(),
+            Some(30),
+        )
+        .await?;
+        
+        println!("Backup created. Dropping database...");
+        
+        // Drop the database
+        geni::drop_database(
+            db_url,
+            None,
+            "schema_migrations".to_string(),
+            "./migrations".to_string(),
+            "schema.sql".to_string(),
+            Some(30),
+        )
+        .await?;
+        
+        println!("Database dropped successfully!");
+    } else {
+        println!("Database drop cancelled.");
+    }
+    
+    Ok(())
+}
+```
+
+## Testing Workflow
+
+Common pattern for integration tests:
+
+```rust
+use geni;
+
+#[tokio::test]
+async fn test_database_operations() -> anyhow::Result<()> {
+    let db_url = "sqlite://./test_db.sqlite".to_string();
+    let migration_table = "schema_migrations".to_string();
+    let migration_folder = "./test_migrations".to_string();
+    let schema_file = "schema.sql".to_string();
+    
+    // Create test database
+    geni::create_database(
+        db_url.clone(),
+        None,
+        migration_table.clone(),
+        migration_folder.clone(),
+        schema_file.clone(),
+        Some(30),
+    )
+    .await?;
+    
+    // Run your tests here...
+    
+    // Clean up: drop the test database
+    geni::drop_database(
+        db_url,
+        None,
+        migration_table,
+        migration_folder,
+        schema_file,
+        Some(30),
+    )
+    .await?;
+    
+    Ok(())
+}
+```
+
+## See Also
+
+- [create_database](/api/create-database) - Create a new database
+- [dump_database](/api/dump-database) - Backup database schema before dropping
+- [migrate_database](/api/migrate-database) - Run migrations

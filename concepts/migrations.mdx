@@ -1,0 +1,314 @@
+---
+title: Migration System
+description: Understanding Geni's timestamp-based migration system and up/down migration pattern
+---
+
+Geni uses a timestamp-based migration system that enables multiple developers to collaborate on database changes without conflicts. Each migration consists of two files: an "up" migration for applying changes and a "down" migration for rolling them back.
+
+## How Migrations Work
+
+Geni tracks applied migrations in a dedicated table (default: `schema_migrations`) in your database. When you run migrations, Geni compares the local migration files against the migrations recorded in the database and applies any pending migrations in chronological order.
+
+### Migration File Format
+
+Migration files follow a strict naming convention:
+
+```
+{timestamp}_{name}.{direction}.sql
+```
+
+**Examples:**
+```
+1234567890_create_users.up.sql
+1234567890_create_users.down.sql
+1709123456_add_posts_table.up.sql
+1709123456_add_posts_table.down.sql
+```
+
+<Info>
+The timestamp is generated using Unix epoch time (seconds since January 1, 1970). This ensures migrations are ordered chronologically and prevents naming conflicts when multiple developers create migrations simultaneously.
+</Info>
+
+## Creating Migrations
+
+Use the `geni new` command to generate a new migration pair:
+
+```bash
+DATABASE_URL="postgres://localhost/mydb" geni new create_users_table
+```
+
+This creates two files:
+- `{timestamp}_create_users_table.up.sql` - Apply changes
+- `{timestamp}_create_users_table.down.sql` - Revert changes
+
+Both files are pre-populated with helpful comments:
+
+```sql
+-- Write your up sql migration here
+```
+
+```sql
+-- Write your down sql migration here
+```
+
+### Up and Down Pattern
+
+The up/down pattern ensures that every migration can be both applied and reverted. This is crucial for:
+
+- **Rolling back problematic changes** in production
+- **Testing migrations** in development
+- **Maintaining database history** across environments
+
+<CodeGroup>
+```sql Up Migration (create table)
+CREATE TABLE users (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    email VARCHAR(255) UNIQUE NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_users_email ON users(email);
+```
+
+```sql Down Migration (drop table)
+DROP INDEX IF EXISTS idx_users_email;
+DROP TABLE IF EXISTS users;
+```
+</CodeGroup>
+
+<Warning>
+The down migration should completely reverse the changes made in the up migration. Always test both directions to ensure they work correctly.
+</Warning>
+
+## Applying Migrations
+
+Run all pending migrations with the `up` command:
+
+```bash
+geni up
+```
+
+Geni will:
+1. Read all `.up.sql` files from the migrations folder
+2. Check which migrations have already been applied
+3. Run pending migrations in timestamp order
+4. Record each migration in the `schema_migrations` table
+5. Optionally dump the database schema
+
+### Migration Execution Process
+
+From the source code (`src/lib/migrate.rs:52-64`):
+
+```rust
+for f in files {
+    let id = Box::new(f.0.to_string());
+
+    if !migrations.contains(&id) {
+        info!("Running migration {}", id);
+        let query = read_file_content(&f.1);
+        let run_in_transaction = utils::should_run_in_transaction(&query);
+
+        if let Err(e) = database.execute(&query, run_in_transaction).await { bail!(e) }
+
+        database.insert_schema_migration(&id).await?;
+    }
+}
+```
+
+<Tip>
+Migrations are idempotent - running `geni up` multiple times will only apply new migrations that haven't been run yet.
+</Tip>
+
+## Rolling Back Migrations
+
+Revert the most recent migration:
+
+```bash
+geni down
+```
+
+Rollback multiple migrations using the `-a` (amount) flag:
+
+```bash
+geni down -a 3
+```
+
+This will:
+1. Identify the last 3 applied migrations
+2. Run their `.down.sql` files in reverse chronological order (newest first)
+3. Remove each migration record from the `schema_migrations` table
+
+### Rollback Process
+
+From the source code (`src/lib/migrate.rs:118-137`):
+
+```rust
+let migrations_to_run = migrations.into_iter().take(*rollback_amount as usize);
+
+for migration in migrations_to_run {
+    let rollback_file = files.iter().find(|(timestamp, _)| timestamp == &migration);
+
+    match rollback_file {
+        None => bail!("No rollback file found for {}", migration),
+        Some(f) => {
+            info!("Running rollback for {}", migration);
+            let query = read_file_content(&f.1);
+            let run_in_transaction = utils::should_run_in_transaction(&query);
+
+            if let Err(e) = database.execute(&query, run_in_transaction).await { bail!(e) }
+
+            database.remove_schema_migration(migration.to_string().as_str()).await?;
+        }
+    }
+}
+```
+
+<Warning>
+If a `.down.sql` file is missing for a migration that's been applied, the rollback will fail. Always create complete migration pairs.
+</Warning>
+
+## Migration Status
+
+Check which migrations are pending:
+
+```bash
+geni status
+```
+
+This displays:
+- Total number of migrations found
+- Which migrations have been applied
+- Which migrations are pending
+
+## Timestamp-Based Ordering
+
+Migrations are sorted by their timestamp prefix, ensuring they run in the order they were created:
+
+```rust
+// From src/lib/utils.rs:26-38
+let mut sorted = migration_files
+    .iter()
+    .map(|(path, _)| {
+        let filename = path.file_name().unwrap().to_str().unwrap();
+        let timestamp = filename.split_once('_').unwrap().0;
+        let timestamp = timestamp.parse::<i64>().unwrap();
+
+        (timestamp, path.clone())
+    })
+    .collect::<Vec<(i64, PathBuf)>>();
+
+sorted.sort_by(|a, b| a.0.cmp(&b.0));
+```
+
+<Accordion title="Why Timestamp-Based Instead of Sequential Numbers?">
+Timestamp-based migrations prevent conflicts when multiple developers create migrations on different branches:
+
+- **Sequential (problematic)**: Two developers both create migration `003`, causing conflicts when merging
+- **Timestamp (better)**: Each developer gets a unique timestamp, migrations merge cleanly and run in chronological order
+
+This is especially important in team environments and CI/CD pipelines.
+</Accordion>
+
+## Best Practices
+
+### Write Reversible Migrations
+
+Always ensure your down migration truly reverses the up migration:
+
+<CodeGroup>
+```sql Good Example - Up
+ALTER TABLE users ADD COLUMN age INTEGER;
+```
+
+```sql Good Example - Down
+ALTER TABLE users DROP COLUMN age;
+```
+</CodeGroup>
+
+### Use Conditional DDL
+
+Make migrations safer with conditional statements:
+
+```sql
+CREATE TABLE IF NOT EXISTS products (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(255) NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_products_name ON products(name);
+```
+
+### Test Both Directions
+
+Before deploying to production:
+
+```bash
+# Apply the migration
+geni up
+
+# Verify the changes
+# ... test your application ...
+
+# Rollback the migration
+geni down
+
+# Verify the rollback worked
+# ... check database state ...
+
+# Re-apply for production
+geni up
+```
+
+### Keep Migrations Small
+
+Create focused migrations that do one thing well:
+
+```bash
+# Good - separate concerns
+geni new create_users_table
+geni new add_users_email_index
+geni new create_posts_table
+
+# Avoid - too much in one migration
+geni new create_all_tables
+```
+
+## Migration File Location
+
+By default, Geni looks for migrations in `./migrations`. Customize this with:
+
+```bash
+export DATABASE_MIGRATIONS_FOLDER="./db/migrations"
+geni up
+```
+
+Or set it in your CI/CD environment:
+
+```yaml
+- uses: emilpriver/geni@main
+  with:
+    migrations_folder: "./db/migrations"
+    database_url: ${{ secrets.DATABASE_URL }}
+```
+
+## Schema Migrations Table
+
+Geni creates a tracking table (default: `schema_migrations`) with a simple structure:
+
+```sql
+CREATE TABLE IF NOT EXISTS schema_migrations (
+    id VARCHAR(255) PRIMARY KEY
+);
+```
+
+Each row contains a migration timestamp. Customize the table name:
+
+```bash
+export DATABASE_MIGRATIONS_TABLE="geni_migrations"
+geni up
+```
+
+<Note>
+The migrations table is automatically created the first time you run `geni up`. You don't need to create it manually.
+</Note>

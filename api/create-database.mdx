@@ -1,0 +1,205 @@
+---
+title: create_database
+description: Create a new database programmatically
+---
+
+## Function Signature
+
+```rust
+pub async fn create_database(
+    database_url: String,
+    database_token: Option<String>,
+    migration_table: String,
+    migration_folder: String,
+    schema_file: String,
+    wait_timeout: Option<usize>,
+) -> anyhow::Result<()>
+```
+
+## Description
+
+Creates a new database if it doesn't already exist. This function is useful for setting up a fresh database before running migrations. Database creation behavior varies by database type.
+
+## Parameters
+
+<ParamField path="database_url" type="String" required>
+  The database connection URL. The database name specified in the URL will be created:
+  - PostgreSQL: `postgres://user:password@host:port/database_name?sslmode=disable`
+  - MySQL: `mysql://root:password@localhost:3306/database_name`
+  - MariaDB: `mariadb://root:password@localhost:3307/database_name`
+  - SQLite: `sqlite://./database.sqlite` (file is created automatically)
+  - LibSQL: Should be created using the LibSQL/Turso interface
+</ParamField>
+
+<ParamField path="database_token" type="Option<String>" required>
+  Authentication token for LibSQL/Turso databases. Use `None` for other database types.
+</ParamField>
+
+<ParamField path="migration_table" type="String" required>
+  Name of the table that will be used to track migrations. This parameter is stored for future migration operations.
+</ParamField>
+
+<ParamField path="migration_folder" type="String" required>
+  Path to the directory that will contain migration files. Example: `"./migrations"`.
+</ParamField>
+
+<ParamField path="schema_file" type="String" required>
+  Name of the schema dump file that will be used for future migrations. Example: `"schema.sql"`.
+</ParamField>
+
+<ParamField path="wait_timeout" type="Option<usize>" required>
+  Timeout in seconds to wait for the database server to be ready. Use `Some(30)` for 30 seconds, or `None` for default timeout.
+</ParamField>
+
+## Return Value
+
+Returns `Result<()>` which:
+- Returns `Ok(())` if the database was created successfully or already exists
+- Returns `Err` if there was a connection error or permission issue
+
+## Usage Example
+
+```rust
+use geni;
+
+#[tokio::main]
+async fn main() {
+    // Create a SQLite database
+    let result = geni::create_database(
+        "sqlite://./test.db".to_string(),
+        None,
+        "schema_migrations".to_string(),
+        "./migrations".to_string(),
+        "schema.sql".to_string(),
+        Some(30),
+    )
+    .await;
+
+    match result {
+        Ok(_) => println!("Database created successfully"),
+        Err(e) => eprintln!("Database creation failed: {}", e),
+    }
+}
+```
+
+### PostgreSQL Example
+
+```rust
+// Create a PostgreSQL database
+geni::create_database(
+    "postgres://postgres:password@127.0.0.1:5432/myapp?sslmode=disable".to_string(),
+    None,
+    "schema_migrations".to_string(),
+    "./migrations".to_string(),
+    "schema.sql".to_string(),
+    Some(30),
+)
+.await
+.unwrap();
+```
+
+### MySQL Example
+
+```rust
+// Create a MySQL database
+geni::create_database(
+    "mysql://root:password@localhost:3306/myapp".to_string(),
+    None,
+    "schema_migrations".to_string(),
+    "./migrations".to_string(),
+    "schema.sql".to_string(),
+    Some(30),
+)
+.await
+.unwrap();
+```
+
+### MariaDB Example
+
+```rust
+// Create a MariaDB database
+geni::create_database(
+    "mariadb://root:password@localhost:3307/myapp".to_string(),
+    None,
+    "schema_migrations".to_string(),
+    "./migrations".to_string(),
+    "schema.sql".to_string(),
+    Some(30),
+)
+.await
+.unwrap();
+```
+
+## Database-Specific Behavior
+
+### PostgreSQL, MySQL, MariaDB
+- Connects to the database server
+- Creates the database if it doesn't exist
+- No error is returned if the database already exists
+
+### SQLite
+- The database file is created automatically when you first run migrations
+- This function primarily validates the connection parameters
+- The file path specified in the URL is used for the database location
+
+### LibSQL/Turso
+- Databases should be created using the LibSQL/Turso CLI or web interface
+- This function validates the connection to an existing LibSQL database
+- Use the Turso CLI: `turso db create <database-name>`
+
+## Error Handling
+
+The function may return errors in these cases:
+- Database server is unreachable
+- Insufficient permissions to create databases
+- Invalid database URL format
+- Connection timeout (server not ready within `wait_timeout`)
+- Database name contains invalid characters
+
+## Workflow Example
+
+Typical workflow for setting up a new project:
+
+```rust
+use geni;
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    let db_url = "postgres://postgres:password@localhost:5432/myapp?sslmode=disable".to_string();
+    let migration_folder = "./migrations".to_string();
+    let schema_file = "schema.sql".to_string();
+    let migration_table = "schema_migrations".to_string();
+    
+    // Step 1: Create the database
+    geni::create_database(
+        db_url.clone(),
+        None,
+        migration_table.clone(),
+        migration_folder.clone(),
+        schema_file.clone(),
+        Some(30),
+    )
+    .await?;
+    
+    // Step 2: Run migrations
+    geni::migrate_database(
+        db_url,
+        None,
+        migration_table,
+        migration_folder,
+        schema_file,
+        Some(30),
+        true,
+    )
+    .await?;
+    
+    println!("Database setup complete!");
+    Ok(())
+}
+```
+
+## See Also
+
+- [drop_database](/api/drop-database) - Drop a database
+- [migrate_database](/api/migrate-database) - Run migrations after creating the database
+- [new_migration](/api/new-migration) - Create migration files

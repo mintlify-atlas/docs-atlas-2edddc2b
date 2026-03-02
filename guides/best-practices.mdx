@@ -1,0 +1,550 @@
+---
+title: "Best Practices"
+description: "Recommended patterns and practices for using Geni effectively"
+---
+
+## Migration Design
+
+### Write Reversible Migrations
+
+Every `.up.sql` migration should have a corresponding `.down.sql` that completely reverses its changes.
+
+<CodeGroup>
+```sql migrations/1709123456_create_users.up.sql
+CREATE TABLE users (
+    id SERIAL PRIMARY KEY,
+    email VARCHAR(255) NOT NULL UNIQUE,
+    name VARCHAR(255) NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_users_email ON users(email);
+```
+
+```sql migrations/1709123456_create_users.down.sql
+DROP INDEX IF EXISTS idx_users_email;
+DROP TABLE IF EXISTS users;
+```
+</CodeGroup>
+
+<Tip>
+  Always drop in reverse order: indexes first, then tables. This prevents dependency errors.
+</Tip>
+
+### Keep Migrations Small and Focused
+
+Each migration should do one logical thing. This makes them easier to:
+- Review and understand
+- Debug when issues occur
+- Rollback independently
+
+<CodeGroup>
+```sql Good: Single Responsibility
+-- 1709123456_create_users_table.up.sql
+CREATE TABLE users (
+    id SERIAL PRIMARY KEY,
+    email VARCHAR(255) NOT NULL
+);
+```
+
+```sql Good: Separate Migration
+-- 1709123457_add_user_timestamps.up.sql
+ALTER TABLE users ADD COLUMN created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+ALTER TABLE users ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+```
+
+```sql Avoid: Too Many Changes
+-- Bad: One migration doing too much
+CREATE TABLE users (...);
+CREATE TABLE posts (...);
+CREATE TABLE comments (...);
+ALTER TABLE profiles ADD COLUMN bio TEXT;
+CREATE INDEX idx_everything ON everything(all_columns);
+```
+</CodeGroup>
+
+### Use Descriptive Migration Names
+
+Generate migrations with clear, action-oriented names:
+
+```bash
+# Good names
+geni new create_users_table
+geni new add_email_index_to_users
+geni new remove_deprecated_status_column
+geni new alter_posts_add_published_at
+
+# Avoid vague names
+geni new update_schema
+geni new fix_bug
+geni new changes
+```
+
+The timestamp provides uniqueness, so focus the name on what the migration does.
+
+## Transaction Control
+
+### Default: Use Transactions
+
+Geni runs migrations in transactions by default, which provides:
+- **Atomicity**: All changes succeed or all fail
+- **Safety**: Failed migrations don't leave partial changes
+- **Rollback**: Automatic rollback on errors
+
+```sql migrations/1709123456_create_tables.up.sql
+-- Runs in a transaction by default
+CREATE TABLE users (id SERIAL PRIMARY KEY);
+CREATE TABLE posts (id SERIAL PRIMARY KEY);
+-- If either fails, both are rolled back
+```
+
+### When to Disable Transactions
+
+Some operations can't run in transactions. Add `-- transaction:no` as the first line:
+
+<CodeGroup>
+```sql PostgreSQL: Concurrent Index Creation
+-- transaction:no
+CREATE INDEX CONCURRENTLY idx_users_email ON users(email);
+```
+
+```sql MySQL: Large Table Alterations
+-- transaction:no
+ALTER TABLE large_table ADD COLUMN status VARCHAR(50);
+```
+
+```sql PostgreSQL: Create Database
+-- transaction:no
+CREATE DATABASE new_application_db;
+```
+</CodeGroup>
+
+<Warning>
+  When disabling transactions, ensure the migration can be safely re-run if it fails partway through. Use `IF NOT EXISTS` and `IF EXISTS` clauses.
+</Warning>
+
+## Data Safety
+
+### Test Migrations Locally First
+
+Always test the complete migration cycle before production:
+
+```bash
+# 1. Create a test database
+DATABASE_URL="postgres://localhost:5432/test_app" geni create
+
+# 2. Run migrations up
+DATABASE_URL="postgres://localhost:5432/test_app" geni up
+
+# 3. Verify the schema
+psql postgres://localhost:5432/test_app -c "\dt"
+
+# 4. Test rollback
+DATABASE_URL="postgres://localhost:5432/test_app" geni down -a 1
+
+# 5. Verify rollback worked
+psql postgres://localhost:5432/test_app -c "\dt"
+
+# 6. Run up again to test idempotency
+DATABASE_URL="postgres://localhost:5432/test_app" geni up
+```
+
+### Use IF EXISTS and IF NOT EXISTS
+
+Make migrations idempotent where possible:
+
+```sql Safe Migration Pattern
+-- Up migration
+CREATE TABLE IF NOT EXISTS users (
+    id SERIAL PRIMARY KEY
+);
+
+ALTER TABLE users ADD COLUMN IF NOT EXISTS email VARCHAR(255);
+
+-- Down migration  
+DROP TABLE IF EXISTS users;
+```
+
+This prevents errors if a migration is accidentally run twice.
+
+### Handle Data Migrations Carefully
+
+When migrating data, use multiple steps:
+
+<Steps>
+  <Step title="Add the new column (nullable)">
+    ```sql 1709123456_add_full_name_column.up.sql
+    ALTER TABLE users ADD COLUMN full_name VARCHAR(500);
+    ```
+  </Step>
+
+  <Step title="Populate the new column">
+    ```sql 1709123457_populate_full_name.up.sql
+    UPDATE users 
+    SET full_name = CONCAT(first_name, ' ', last_name)
+    WHERE full_name IS NULL;
+    ```
+  </Step>
+
+  <Step title="Make the column non-nullable (if needed)">
+    ```sql 1709123458_make_full_name_required.up.sql
+    ALTER TABLE users ALTER COLUMN full_name SET NOT NULL;
+    ```
+  </Step>
+
+  <Step title="Remove old columns (after verification)">
+    ```sql 1709123459_remove_name_columns.up.sql
+    ALTER TABLE users DROP COLUMN first_name;
+    ALTER TABLE users DROP COLUMN last_name;
+    ```
+  </Step>
+</Steps>
+
+<Warning>
+  Never drop columns with data in the same migration that creates their replacement. Deploy the new column, verify data integrity, then remove old columns in a later migration.
+</Warning>
+
+## Schema Management
+
+### Version Control Schema Files
+
+Enable schema dumping to track your database structure:
+
+```bash
+# Automatically dump schema after migrations
+DATABASE_URL="your_url" geni up
+
+# This creates/updates schema.sql in your repo
+```
+
+Commit the `schema.sql` file to version control:
+- Provides a snapshot of your current schema
+- Helps reviewers understand structural changes
+- Enables schema comparison across branches
+
+### Customize Schema File Location
+
+```bash
+# Use a custom schema file name
+DATABASE_SCHEMA_FILE="db/schema.sql" geni up
+
+# Disable schema dumping in CI
+DATABASE_NO_DUMP_SCHEMA=true geni up
+```
+
+## Environment Management
+
+### Use Environment Variables
+
+Store database credentials in environment variables, never in code:
+
+```bash .env.example
+DATABASE_URL=postgres://localhost:5432/development
+DATABASE_MIGRATIONS_FOLDER=./migrations
+DATABASE_MIGRATIONS_TABLE=schema_migrations
+DATABASE_SCHEMA_FILE=schema.sql
+DATABASE_WAIT_TIMEOUT=30
+```
+
+Load them in your shell:
+```bash
+source .env
+geni up
+```
+
+<Warning>
+  Add `.env` to `.gitignore` to prevent committing secrets.
+</Warning>
+
+### Separate Configurations by Environment
+
+<CodeGroup>
+```bash .env.development
+DATABASE_URL=postgres://localhost:5432/app_development
+DATABASE_WAIT_TIMEOUT=30
+```
+
+```bash .env.production
+DATABASE_URL=postgres://prod-db:5432/app?sslmode=require
+DATABASE_WAIT_TIMEOUT=60
+DATABASE_NO_DUMP_SCHEMA=true
+```
+</CodeGroup>
+
+## Performance Optimization
+
+### Create Indexes Concurrently (PostgreSQL)
+
+For production databases with existing data:
+
+```sql migrations/1709123456_add_email_index.up.sql
+-- transaction:no
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_users_email ON users(email);
+```
+
+Concurrent index creation:
+- Doesn't lock the table
+- Allows reads and writes during creation
+- Takes longer but doesn't block production traffic
+
+### Schedule Large Migrations Carefully
+
+For migrations that:
+- Modify large tables (millions of rows)
+- Create indexes on large datasets
+- Perform data transformations
+
+Run during low-traffic periods:
+
+```bash
+# Example: Scheduled migration
+0 2 * * * cd /app && DATABASE_URL=$PROD_DB geni up
+```
+
+### Batch Large Data Updates
+
+For updating many rows, batch the operations:
+
+```sql Batch Updates
+-- Instead of one huge UPDATE
+UPDATE users SET status = 'active' WHERE status IS NULL;
+
+-- Use batches
+UPDATE users 
+SET status = 'active' 
+WHERE status IS NULL 
+AND id BETWEEN 1 AND 10000;
+
+-- Repeat for each batch
+-- Add LIMIT for other databases
+```
+
+## CI/CD Integration
+
+### Automated Migration Testing
+
+<CodeGroup>
+```yaml GitHub Actions
+name: Test Migrations
+on: [pull_request]
+
+jobs:
+  test-migrations:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: postgres
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Run migrations up
+        env:
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/test
+        run: |
+          # Install geni
+          curl -fsSL -o geni https://github.com/emilpriver/geni/releases/latest/download/geni-linux-amd64
+          chmod +x geni
+          
+          # Test migrations
+          ./geni create
+          ./geni up
+          ./geni status
+      
+      - name: Test rollback
+        env:
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/test
+        run: |
+          ./geni down -a 1
+          ./geni up
+```
+
+```yaml GitLab CI
+migrations:
+  image: ghcr.io/emilpriver/geni:latest
+  services:
+    - postgres:15
+  variables:
+    DATABASE_URL: "postgres://postgres:postgres@postgres:5432/test"
+    POSTGRES_DB: test
+    POSTGRES_PASSWORD: postgres
+  script:
+    - geni create
+    - geni up
+    - geni down -a 1
+    - geni up
+  only:
+    - merge_requests
+```
+</CodeGroup>
+
+### Production Deployment
+
+```yaml Deploy Workflow
+deploy:
+  runs-on: ubuntu-latest
+  steps:
+    - uses: actions/checkout@v3
+    
+    - name: Run migrations
+      env:
+        DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+        DATABASE_TOKEN: ${{ secrets.DATABASE_TOKEN }}
+      run: |
+        curl -fsSL -o geni https://github.com/emilpriver/geni/releases/latest/download/geni-linux-amd64
+        chmod +x geni
+        ./geni up
+    
+    - name: Deploy application
+      run: |
+        # Your deployment steps
+```
+
+<Tip>
+  Run migrations before deploying application code to ensure the database schema is ready for new features.
+</Tip>
+
+## Library Usage
+
+When using Geni as a Rust library:
+
+```rust src/main.rs
+use geni;
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    // Run migrations on application startup
+    geni::migrate_database(
+        std::env::var("DATABASE_URL")?,
+        None,                           // Token (for LibSQL)
+        "schema_migrations".to_string(),
+        "./migrations".to_string(),
+        "schema.sql".to_string(),
+        Some(30),                       // Wait timeout
+        false,                          // Skip schema dump in production
+    )
+    .await?;
+
+    // Your application code
+    Ok(())
+}
+```
+
+Benefits:
+- Automatic migrations on startup
+- No separate migration step in deployment
+- Guaranteed schema version matches code
+
+<Warning>
+  For production, consider running migrations as a separate step before starting multiple application instances to avoid race conditions.
+</Warning>
+
+## Common Anti-Patterns to Avoid
+
+<AccordionGroup>
+  <Accordion title="❌ Modifying Applied Migrations" icon="xmark">
+    **Don't do this:**
+    - Editing migration files that have been applied to production
+    - Changing timestamps of existing migrations
+    
+    **Why it's bad:**
+    - Migrations are already recorded as applied
+    - Changes won't be applied to existing databases
+    - Creates inconsistency between environments
+    
+    **Do this instead:**
+    - Create a new migration to fix issues
+    - Keep historical migrations as-is
+  </Accordion>
+
+  <Accordion title="❌ Deleting Migrations" icon="trash">
+    **Don't do this:**
+    - Removing migration files from the migrations folder
+    - Cleaning up "old" migrations
+    
+    **Why it's bad:**
+    - Breaks rollback capability
+    - Causes errors when setting up new environments
+    - Loses historical context
+    
+    **Do this instead:**
+    - Keep all migrations in version control
+    - Use migrations as documentation of schema evolution
+  </Accordion>
+
+  <Accordion title="❌ Deploying Code Before Migrations" icon="code">
+    **Don't do this:**
+    - Deploying application code that requires new schema
+    - Running migrations after the application starts
+    
+    **Why it's bad:**
+    - Application errors until migrations complete
+    - Downtime during migration window
+    
+    **Do this instead:**
+    - Run migrations first
+    - Deploy backward-compatible changes
+    - Use feature flags for multi-step rollouts
+  </Accordion>
+
+  <Accordion title="❌ Manual Schema Changes" icon="hand">
+    **Don't do this:**
+    - Running SQL directly in production
+    - "Quick fixes" that bypass migrations
+    
+    **Why it's bad:**
+    - Changes not tracked in version control
+    - Environments drift out of sync
+    - Can't reproduce or rollback
+    
+    **Do this instead:**
+    - Always create a migration
+    - Test it locally
+    - Deploy through normal process
+  </Accordion>
+</AccordionGroup>
+
+## Quick Reference
+
+### Essential Commands
+
+```bash
+# Create a new migration
+geni new migration_name
+
+# Check pending migrations
+geni status
+
+# Apply all pending migrations
+geni up
+
+# Rollback last migration
+geni down
+
+# Rollback multiple migrations
+geni down -a 3
+
+# Create database
+geni create
+
+# Dump current schema
+geni dump
+```
+
+### Environment Variables
+
+| Variable | Required | Default | Purpose |
+|----------|----------|---------|----------|
+| `DATABASE_URL` | Yes | - | Database connection string |
+| `DATABASE_TOKEN` | No | - | LibSQL/Turso auth token |
+| `DATABASE_MIGRATIONS_FOLDER` | No | `./migrations` | Migration files location |
+| `DATABASE_MIGRATIONS_TABLE` | No | `schema_migrations` | Tracking table name |
+| `DATABASE_SCHEMA_FILE` | No | `schema.sql` | Schema dump filename |
+| `DATABASE_WAIT_TIMEOUT` | No | `30` | Connection timeout (seconds) |
+| `DATABASE_NO_DUMP_SCHEMA` | No | `false` | Disable schema dumping |

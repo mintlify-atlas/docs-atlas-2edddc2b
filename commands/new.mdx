@@ -1,0 +1,187 @@
+---
+title: "geni new"
+description: "Create a new migration file with up and down SQL scripts"
+---
+
+## Overview
+
+The `geni new` command generates a pair of timestamped migration files for your database changes. Each migration consists of an "up" file for applying changes and a "down" file for rolling them back.
+
+## Usage
+
+```bash
+geni new <name>
+```
+
+## Arguments
+
+<ParamField path="name" type="string" required>
+  The name of the migration. Spaces will be converted to underscores and the name will be lowercased.
+  
+  **Examples:**
+  - `create_users_table`
+  - `add email column`
+  - `CreateIndexOnPosts`
+</ParamField>
+
+## How It Works
+
+1. Generates a Unix timestamp for versioning
+2. Creates two files in your migrations folder:
+   - `{timestamp}_{name}.up.sql` - For applying the migration
+   - `{timestamp}_{name}.down.sql` - For rolling back the migration
+3. Each file contains a starter comment template
+
+## Environment Variables
+
+<ParamField path="DATABASE_MIGRATIONS_FOLDER" type="string" default="./migrations">
+  Specifies the directory where migration files will be created. The folder will be created automatically if it doesn't exist.
+</ParamField>
+
+## Examples
+
+### Basic Usage
+
+Create a migration to add a users table:
+
+```bash
+geni new create_users_table
+```
+
+**Output:**
+```
+Generated ./migrations/1709395200_create_users_table.up.sql
+Generated ./migrations/1709395200_create_users_table.down.sql
+Success
+```
+
+### Using Custom Migration Folder
+
+```bash
+DATABASE_MIGRATIONS_FOLDER="./db/migrations" geni new add_index_to_posts
+```
+
+**Output:**
+```
+Generated ./db/migrations/1709395245_add_index_to_posts.up.sql
+Generated ./db/migrations/1709395245_add_index_to_posts.down.sql
+Success
+```
+
+### Migration with Spaces
+
+```bash
+geni new "Add Email Column"
+```
+
+**Output:**
+```
+Generated ./migrations/1709395300_add_email_column.up.sql
+Generated ./migrations/1709395300_add_email_column.down.sql
+Success
+```
+
+## Generated File Contents
+
+Each generated file contains a template comment:
+
+**{timestamp}_create_users_table.up.sql:**
+```sql
+-- Write your up sql migration here
+```
+
+**{timestamp}_create_users_table.down.sql:**
+```sql
+-- Write your down sql migration here
+```
+
+## Writing Migrations
+
+After creating migration files, you need to add your SQL:
+
+### Up Migration Example
+
+```sql
+-- Write your up sql migration here
+CREATE TABLE users (
+    id SERIAL PRIMARY KEY,
+    email VARCHAR(255) NOT NULL UNIQUE,
+    name VARCHAR(100),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_users_email ON users(email);
+```
+
+### Down Migration Example
+
+```sql
+-- Write your down sql migration here
+DROP INDEX IF EXISTS idx_users_email;
+DROP TABLE IF EXISTS users;
+```
+
+<Note>
+  The down migration should reverse all changes made in the up migration to ensure clean rollbacks.
+</Note>
+
+## Transaction Control
+
+By default, Geni runs migrations in transactions. To disable transactions for a specific migration, add a comment at the top of the file:
+
+```sql
+-- transaction:no
+CREATE TABLE users (
+    id SERIAL PRIMARY KEY,
+    email VARCHAR(255) NOT NULL
+);
+```
+
+<Warning>
+  Some database operations (like creating indexes concurrently in PostgreSQL) cannot run inside transactions. Use `-- transaction:no` for these cases.
+</Warning>
+
+## Best Practices
+
+- **Use descriptive names**: Choose names that clearly describe what the migration does
+- **Keep migrations small**: Focus on one logical change per migration
+- **Test rollbacks**: Always ensure your down migration properly reverses the up migration
+- **Avoid manual timestamps**: Let Geni generate timestamps to prevent conflicts
+- **Version control**: Commit migration files to your repository
+
+## Common Patterns
+
+### Creating a Table
+
+```bash
+geni new create_posts_table
+```
+
+### Altering a Table
+
+```bash
+geni new add_published_to_posts
+```
+
+### Adding an Index
+
+```bash
+geni new add_index_on_user_email
+```
+
+### Data Migration
+
+```bash
+geni new migrate_user_preferences
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Apply Migrations" icon="arrow-up" href="/commands/up">
+    Run pending migrations with `geni up`
+  </Card>
+  <Card title="Check Status" icon="list-check" href="/commands/status">
+    View pending migrations with `geni status`
+  </Card>
+</CardGroup>

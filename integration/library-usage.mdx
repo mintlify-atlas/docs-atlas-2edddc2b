@@ -1,0 +1,629 @@
+---
+title: Library Usage
+description: Use Geni as a Rust library in your applications
+---
+
+Geni can be embedded directly into your Rust applications as a library, allowing you to programmatically manage database migrations.
+
+## Installation
+
+Add Geni to your `Cargo.toml`:
+
+```toml
+[dependencies]
+geni = "*"
+tokio = { version = "1", features = ["full"] }
+```
+
+## Quick Start
+
+Here's a minimal example of running migrations:
+
+```rust
+use geni;
+
+#[tokio::main]
+async fn main() {
+    geni::migrate_database(
+        "sqlite://./test.db".to_string(),  // Database URL
+        None,                               // Database Token
+        "migrations".to_string(),           // Migration Table
+        "./migrations".to_string(),         // Migration Folder
+        "schema.sql".to_string(),           // Schema File
+        Some(30),                           // Wait timeout
+        false,                              // Dump Schema
+    )
+    .await
+    .unwrap();
+}
+```
+
+## Available Functions
+
+Geni exposes the following public functions for library usage:
+
+### migrate_database
+
+Apply all pending migrations to the database.
+
+```rust
+pub async fn migrate_database(
+    database_url: String,
+    database_token: Option<String>,
+    migration_table: String,
+    migration_folder: String,
+    schema_file: String,
+    wait_timeout: Option<usize>,
+    dump_schema: bool,
+) -> anyhow::Result<()>
+```
+
+<ParamField path="database_url" type="String" required>
+  Database connection URL (e.g., `postgres://user:pass@localhost:5432/db`)
+</ParamField>
+
+<ParamField path="database_token" type="Option<String>">
+  Authentication token for LibSQL/Turso. Use `None` for other databases.
+</ParamField>
+
+<ParamField path="migration_table" type="String" required>
+  Name of the table to track applied migrations (e.g., `"migrations"`)
+</ParamField>
+
+<ParamField path="migration_folder" type="String" required>
+  Path to the directory containing migration files (e.g., `"./migrations"`)
+</ParamField>
+
+<ParamField path="schema_file" type="String" required>
+  Name of the schema dump file (e.g., `"schema.sql"`)
+</ParamField>
+
+<ParamField path="wait_timeout" type="Option<usize>">
+  Seconds to wait for database connection. Use `Some(30)` or `None` for no timeout.
+</ParamField>
+
+<ParamField path="dump_schema" type="bool" required>
+  Whether to dump the database schema after migrations. Set to `false` to disable.
+</ParamField>
+
+**Example:**
+
+```rust
+geni::migrate_database(
+    "postgres://postgres:password@localhost:5432/app".to_string(),
+    None,
+    "schema_migrations".to_string(),
+    "./db/migrations".to_string(),
+    "schema.sql".to_string(),
+    Some(30),
+    true,
+)
+.await?;
+```
+
+### migate_down
+
+Rollback migrations.
+
+```rust
+pub async fn migate_down(
+    database_url: String,
+    database_token: Option<String>,
+    migration_table: String,
+    migration_folder: String,
+    schema_file: String,
+    wait_timeout: Option<usize>,
+    dump_schema: bool,
+    rollback_amount: i64,
+) -> anyhow::Result<()>
+```
+
+<ParamField path="rollback_amount" type="i64" required>
+  Number of migrations to rollback. Use `1` to rollback the last migration.
+</ParamField>
+
+**Example:**
+
+```rust
+// Rollback the last migration
+geni::migate_down(
+    "sqlite://./test.db".to_string(),
+    None,
+    "migrations".to_string(),
+    "./migrations".to_string(),
+    "schema.sql".to_string(),
+    Some(30),
+    false,
+    1,  // Rollback amount
+)
+.await?;
+```
+
+### create_database
+
+Create a new database.
+
+```rust
+pub async fn create_database(
+    database_url: String,
+    database_token: Option<String>,
+    migration_table: String,
+    migration_folder: String,
+    schema_file: String,
+    wait_timeout: Option<usize>,
+) -> anyhow::Result<()>
+```
+
+<Info>
+  This function works for PostgreSQL, MySQL, and MariaDB. For SQLite, the file is created automatically when running migrations. For LibSQL, create the database using Turso's interface.
+</Info>
+
+**Example:**
+
+```rust
+geni::create_database(
+    "postgres://postgres:password@localhost:5432/newdb".to_string(),
+    None,
+    "migrations".to_string(),
+    "./migrations".to_string(),
+    "schema.sql".to_string(),
+    Some(30),
+)
+.await?;
+```
+
+### drop_database
+
+Drop an existing database.
+
+```rust
+pub async fn drop_database(
+    database_url: String,
+    database_token: Option<String>,
+    migration_table: String,
+    migration_folder: String,
+    schema_file: String,
+    wait_timeout: Option<usize>,
+) -> anyhow::Result<()>
+```
+
+<Warning>
+  This function permanently deletes the database. Use with extreme caution, especially in production environments.
+</Warning>
+
+**Example:**
+
+```rust
+geni::drop_database(
+    "postgres://postgres:password@localhost:5432/olddb".to_string(),
+    None,
+    "migrations".to_string(),
+    "./migrations".to_string(),
+    "schema.sql".to_string(),
+    Some(30),
+)
+.await?;
+```
+
+### new_migration
+
+Generate a new migration file.
+
+```rust
+pub async fn new_migration(
+    migration_path: String,
+    name: &str,
+) -> anyhow::Result<()>
+```
+
+<ParamField path="migration_path" type="String" required>
+  Path to the migrations directory (e.g., `"./migrations"`)
+</ParamField>
+
+<ParamField path="name" type="&str" required>
+  Name for the new migration (e.g., `"create_users_table"`)
+</ParamField>
+
+**Example:**
+
+```rust
+geni::new_migration(
+    "./migrations".to_string(),
+    "create_users_table",
+)
+.await?;
+```
+
+This creates two files:
+- `YYYYMMDDHHMMSS_create_users_table.up.sql`
+- `YYYYMMDDHHMMSS_create_users_table.down.sql`
+
+### status_migrations
+
+Check the status of migrations.
+
+```rust
+pub async fn status_migrations(
+    database_url: String,
+    database_token: Option<String>,
+    migration_table: String,
+    migration_folder: String,
+    schema_file: String,
+    wait_timeout: Option<usize>,
+    verbose: bool,
+) -> anyhow::Result<()>
+```
+
+<ParamField path="verbose" type="bool" required>
+  Enable verbose output. Set to `true` for detailed information.
+</ParamField>
+
+**Example:**
+
+```rust
+geni::status_migrations(
+    "postgres://postgres:password@localhost:5432/app".to_string(),
+    None,
+    "migrations".to_string(),
+    "./migrations".to_string(),
+    "schema.sql".to_string(),
+    Some(30),
+    true,  // Verbose output
+)
+.await?;
+```
+
+### dump_database
+
+Dump the database schema to a file.
+
+```rust
+pub async fn dump_database(
+    database_url: String,
+    database_token: Option<String>,
+    migration_table: String,
+    migration_folder: String,
+    schema_file: String,
+    wait_timeout: Option<usize>,
+) -> anyhow::Result<()>
+```
+
+**Example:**
+
+```rust
+geni::dump_database(
+    "sqlite://./test.db".to_string(),
+    None,
+    "migrations".to_string(),
+    "./migrations".to_string(),
+    "schema.sql".to_string(),
+    Some(30),
+)
+.await?;
+```
+
+## Complete Example
+
+Here's a comprehensive example demonstrating all library functions:
+
+```rust
+use geni;
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    let db_url = "sqlite://./test.db".to_string();
+    let migrations_folder = "./migrations".to_string();
+    let migration_table = "migrations".to_string();
+    let schema_file = "schema.sql".to_string();
+
+    // Create a new migration file
+    geni::new_migration(
+        migrations_folder.clone(),
+        "create_users_table",
+    )
+    .await?;
+
+    // Create the database (PostgreSQL, MySQL, MariaDB only)
+    // geni::create_database(
+    //     db_url.clone(),
+    //     None,
+    //     migration_table.clone(),
+    //     migrations_folder.clone(),
+    //     schema_file.clone(),
+    //     Some(30),
+    // )
+    // .await?;
+
+    // Check migration status
+    geni::status_migrations(
+        db_url.clone(),
+        None,
+        migration_table.clone(),
+        migrations_folder.clone(),
+        schema_file.clone(),
+        Some(30),
+        true,
+    )
+    .await?;
+
+    // Apply migrations
+    geni::migrate_database(
+        db_url.clone(),
+        None,
+        migration_table.clone(),
+        migrations_folder.clone(),
+        schema_file.clone(),
+        Some(30),
+        true,  // Dump schema after migration
+    )
+    .await?;
+
+    // Dump the schema
+    geni::dump_database(
+        db_url.clone(),
+        None,
+        migration_table.clone(),
+        migrations_folder.clone(),
+        schema_file.clone(),
+        Some(30),
+    )
+    .await?;
+
+    // Rollback the last migration
+    geni::migate_down(
+        db_url.clone(),
+        None,
+        migration_table.clone(),
+        migrations_folder.clone(),
+        schema_file.clone(),
+        Some(30),
+        false,
+        1,  // Rollback amount
+    )
+    .await?;
+
+    // Drop the database (use with caution!)
+    // geni::drop_database(
+    //     db_url.clone(),
+    //     None,
+    //     migration_table.clone(),
+    //     migrations_folder.clone(),
+    //     schema_file.clone(),
+    //     Some(30),
+    // )
+    // .await?;
+
+    Ok(())
+}
+```
+
+## Error Handling
+
+All Geni functions return `anyhow::Result<()>`, allowing for flexible error handling:
+
+```rust
+use anyhow::Context;
+
+match geni::migrate_database(
+    db_url,
+    None,
+    "migrations".to_string(),
+    "./migrations".to_string(),
+    "schema.sql".to_string(),
+    Some(30),
+    true,
+)
+.await
+{
+    Ok(_) => println!("Migrations applied successfully"),
+    Err(e) => eprintln!("Migration failed: {}", e),
+}
+
+// Or use ? operator with context
+geni::migrate_database(
+    db_url,
+    None,
+    "migrations".to_string(),
+    "./migrations".to_string(),
+    "schema.sql".to_string(),
+    Some(30),
+    true,
+)
+.await
+.context("Failed to apply database migrations")?;
+```
+
+## Database-Specific Examples
+
+### PostgreSQL
+
+```rust
+geni::migrate_database(
+    "postgres://postgres:password@localhost:5432/app?sslmode=disable".to_string(),
+    None,
+    "schema_migrations".to_string(),
+    "./migrations".to_string(),
+    "schema.sql".to_string(),
+    Some(30),
+    true,
+)
+.await?;
+```
+
+### MySQL
+
+```rust
+geni::migrate_database(
+    "mysql://root:password@localhost:3306/app".to_string(),
+    None,
+    "schema_migrations".to_string(),
+    "./migrations".to_string(),
+    "schema.sql".to_string(),
+    Some(30),
+    true,
+)
+.await?;
+```
+
+### MariaDB
+
+```rust
+geni::migrate_database(
+    "mariadb://root:password@localhost:3307/app".to_string(),
+    None,
+    "schema_migrations".to_string(),
+    "./migrations".to_string(),
+    "schema.sql".to_string(),
+    Some(30),
+    true,
+)
+.await?;
+```
+
+### SQLite
+
+```rust
+geni::migrate_database(
+    "sqlite://./database.sqlite".to_string(),
+    None,
+    "migrations".to_string(),
+    "./migrations".to_string(),
+    "schema.sql".to_string(),
+    Some(30),
+    true,
+)
+.await?;
+```
+
+### LibSQL/Turso
+
+```rust
+geni::migrate_database(
+    "https://my-db.turso.io".to_string(),
+    Some("your-auth-token".to_string()),
+    "migrations".to_string(),
+    "./migrations".to_string(),
+    "schema.sql".to_string(),
+    Some(30),
+    true,
+)
+.await?;
+```
+
+## Integration Patterns
+
+### Application Startup
+
+Run migrations automatically when your application starts:
+
+```rust
+use geni;
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    // Load configuration
+    let db_url = std::env::var("DATABASE_URL")?;
+
+    // Run migrations on startup
+    println!("Running database migrations...");
+    geni::migrate_database(
+        db_url.clone(),
+        None,
+        "migrations".to_string(),
+        "./migrations".to_string(),
+        "schema.sql".to_string(),
+        Some(30),
+        false,
+    )
+    .await?;
+    println!("Migrations complete");
+
+    // Start your application
+    start_application(db_url).await?;
+
+    Ok(())
+}
+```
+
+### Testing Setup
+
+Use Geni in your test setup:
+
+```rust
+#[cfg(test)]
+mod tests {
+    use geni;
+
+    async fn setup_test_db() -> anyhow::Result<String> {
+        let db_url = "sqlite://./test.db".to_string();
+
+        // Apply migrations
+        geni::migrate_database(
+            db_url.clone(),
+            None,
+            "migrations".to_string(),
+            "./migrations".to_string(),
+            "schema.sql".to_string(),
+            Some(30),
+            false,
+        )
+        .await?;
+
+        Ok(db_url)
+    }
+
+    async fn teardown_test_db(db_url: String) -> anyhow::Result<()> {
+        // Drop test database
+        geni::drop_database(
+            db_url,
+            None,
+            "migrations".to_string(),
+            "./migrations".to_string(),
+            "schema.sql".to_string(),
+            Some(30),
+        )
+        .await
+    }
+
+    #[tokio::test]
+    async fn test_something() -> anyhow::Result<()> {
+        let db_url = setup_test_db().await?;
+        
+        // Your test code here
+        
+        teardown_test_db(db_url).await?;
+        Ok(())
+    }
+}
+```
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Idempotent Migrations" icon="rotate">
+    Design migrations to be safely re-run without causing errors.
+  </Card>
+  
+  <Card title="Error Handling" icon="triangle-exclamation">
+    Always handle migration errors gracefully and provide clear error messages.
+  </Card>
+  
+  <Card title="Version Control" icon="code-branch">
+    Commit generated migration files and schema dumps to version control.
+  </Card>
+  
+  <Card title="Test Migrations" icon="vial">
+    Test migrations in development before applying to production.
+  </Card>
+</CardGroup>
+
+## Source Reference
+
+The library API is defined in `src/lib/lib.rs` of the Geni repository. For implementation details, refer to:
+
+- Migration logic: `src/lib/lib.rs:14-33` (migrate_database)
+- Rollback logic: `src/lib/lib.rs:35-56` (migate_down)
+- Database management: `src/lib/lib.rs:58-94` (create_database, drop_database)
+- Migration generation: `src/lib/lib.rs:96-98` (new_migration)
+- Status checking: `src/lib/lib.rs:100-119` (status_migrations)
+- Schema dumping: `src/lib/lib.rs:121-138` (dump_database)

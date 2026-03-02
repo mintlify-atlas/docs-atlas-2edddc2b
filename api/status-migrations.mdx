@@ -1,0 +1,323 @@
+---
+title: status_migrations
+description: Check the status of database migrations programmatically
+---
+
+## Function Signature
+
+```rust
+pub async fn status_migrations(
+    database_url: String,
+    database_token: Option<String>,
+    migration_table: String,
+    migration_folder: String,
+    schema_file: String,
+    wait_timeout: Option<usize>,
+    verbose: bool,
+) -> anyhow::Result<()>
+```
+
+## Description
+
+Checks and displays the status of database migrations by comparing migrations that have been applied to the database against migration files in the migration folder. This helps you understand which migrations are pending, applied, or missing.
+
+## Parameters
+
+<ParamField path="database_url" type="String" required>
+  The database connection URL:
+  - PostgreSQL: `postgres://user:password@host:port/database?sslmode=disable`
+  - MySQL: `mysql://root:password@localhost:3306/app`
+  - MariaDB: `mariadb://root:password@localhost:3307/app`
+  - SQLite: `sqlite://./database.sqlite`
+  - LibSQL/Turso: `https://your-database.turso.io`
+</ParamField>
+
+<ParamField path="database_token" type="Option<String>" required>
+  Authentication token for LibSQL/Turso databases. Use `None` for other database types.
+</ParamField>
+
+<ParamField path="migration_table" type="String" required>
+  Name of the table used to track applied migrations. Should match the table name used in other migration operations.
+</ParamField>
+
+<ParamField path="migration_folder" type="String" required>
+  Path to the directory containing migration files. Example: `"./migrations"`.
+</ParamField>
+
+<ParamField path="schema_file" type="String" required>
+  Name of the schema dump file. Required for consistency with other operations.
+</ParamField>
+
+<ParamField path="wait_timeout" type="Option<usize>" required>
+  Timeout in seconds to wait for the database to be ready. Use `Some(30)` for 30 seconds, or `None` for default timeout.
+</ParamField>
+
+<ParamField path="verbose" type="bool" required>
+  Whether to display detailed status information. Set to `true` for verbose output showing all migrations, `false` for a summary.
+</ParamField>
+
+## Return Value
+
+Returns `Result<()>` which:
+- Returns `Ok(())` after successfully checking and displaying migration status
+- Returns `Err` if there was a connection error or the migration folder doesn't exist
+
+## Usage Example
+
+```rust
+use geni;
+
+#[tokio::main]
+async fn main() {
+    // Check migration status with verbose output
+    let result = geni::status_migrations(
+        "sqlite://./test.db".to_string(),
+        None,
+        "schema_migrations".to_string(),
+        "./migrations".to_string(),
+        "schema.sql".to_string(),
+        Some(30),
+        true, // Verbose output
+    )
+    .await;
+
+    match result {
+        Ok(_) => println!("Status check completed"),
+        Err(e) => eprintln!("Failed to check status: {}", e),
+    }
+}
+```
+
+### Non-Verbose Status Check
+
+```rust
+// Check status with minimal output
+geni::status_migrations(
+    "postgres://postgres:password@127.0.0.1:5432/app?sslmode=disable".to_string(),
+    None,
+    "schema_migrations".to_string(),
+    "./migrations".to_string(),
+    "schema.sql".to_string(),
+    Some(30),
+    false, // Non-verbose output
+)
+.await
+.unwrap();
+```
+
+### LibSQL/Turso Example
+
+```rust
+geni::status_migrations(
+    "https://my-database.turso.io".to_string(),
+    Some("your-auth-token".to_string()),
+    "schema_migrations".to_string(),
+    "./migrations".to_string(),
+    "schema.sql".to_string(),
+    Some(30),
+    true,
+)
+.await
+.unwrap();
+```
+
+## Output Information
+
+The function logs migration status information to the console. The exact format depends on the `verbose` parameter:
+
+### Verbose Mode (`verbose: true`)
+
+Shows detailed information about each migration:
+- List of all applied migrations with timestamps
+- List of pending migrations that need to be applied
+- Any migrations in the database that don't have corresponding files
+
+### Non-Verbose Mode (`verbose: false`)
+
+Shows a summary:
+- Total number of applied migrations
+- Total number of pending migrations
+- Whether the database is up to date
+
+## Behavior
+
+1. Connects to the database
+2. Creates the migration tracking table if it doesn't exist
+3. Retrieves all applied migrations from the tracking table
+4. Reads all `.up.sql` migration files from the migration folder
+5. Compares the two lists to determine:
+   - Which migrations have been applied
+   - Which migrations are pending
+   - If there are any inconsistencies
+6. Logs the status information to the console
+
+## Migration Status States
+
+### Applied Migrations
+Migrations that exist in both the database tracking table and the migration folder. These have been successfully applied to the database.
+
+### Pending Migrations
+Migrations that exist in the migration folder but not in the database tracking table. These need to be applied using `migrate_database`.
+
+### Missing Migration Files
+Migrations that are recorded in the database but don't have corresponding files in the migration folder. This can happen if:
+- Migration files were deleted after being applied
+- The migration folder path is incorrect
+- You're checking a different migration folder than was used originally
+
+## Use Cases
+
+### Pre-Deployment Check
+
+```rust
+use geni;
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    let db_url = std::env::var("DATABASE_URL")?;
+    
+    println!("Checking migration status before deployment...");
+    
+    geni::status_migrations(
+        db_url,
+        None,
+        "schema_migrations".to_string(),
+        "./migrations".to_string(),
+        "schema.sql".to_string(),
+        Some(30),
+        true,
+    )
+    .await?;
+    
+    // Decision logic here based on output
+    println!("Status check complete. Review pending migrations before deploying.");
+    
+    Ok(())
+}
+```
+
+### CI/CD Pipeline Integration
+
+```rust
+use geni;
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    let db_url = std::env::var("DATABASE_URL")?;
+    let migration_folder = "./migrations".to_string();
+    let migration_table = "schema_migrations".to_string();
+    let schema_file = "schema.sql".to_string();
+    
+    // Check status
+    println!("=== Migration Status ===");
+    geni::status_migrations(
+        db_url.clone(),
+        None,
+        migration_table.clone(),
+        migration_folder.clone(),
+        schema_file.clone(),
+        Some(30),
+        true,
+    )
+    .await?;
+    
+    // Apply pending migrations
+    println!("\n=== Applying Pending Migrations ===");
+    geni::migrate_database(
+        db_url.clone(),
+        None,
+        migration_table.clone(),
+        migration_folder.clone(),
+        schema_file.clone(),
+        Some(30),
+        true,
+    )
+    .await?;
+    
+    // Verify all migrations applied
+    println!("\n=== Final Status ===");
+    geni::status_migrations(
+        db_url,
+        None,
+        migration_table,
+        migration_folder,
+        schema_file,
+        Some(30),
+        false,
+    )
+    .await?;
+    
+    Ok(())
+}
+```
+
+### Development Workflow
+
+```rust
+use geni;
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    let db_url = "sqlite://./dev.db".to_string();
+    let migration_folder = "./migrations".to_string();
+    let migration_table = "schema_migrations".to_string();
+    let schema_file = "schema.sql".to_string();
+    
+    // Check what needs to be done
+    geni::status_migrations(
+        db_url.clone(),
+        None,
+        migration_table.clone(),
+        migration_folder.clone(),
+        schema_file.clone(),
+        Some(30),
+        true,
+    )
+    .await?;
+    
+    // Interactive prompt here to ask if user wants to apply migrations
+    // For this example, we'll just apply them
+    
+    println!("\nApplying pending migrations...");
+    geni::migrate_database(
+        db_url,
+        None,
+        migration_table,
+        migration_folder,
+        schema_file,
+        Some(30),
+        true,
+    )
+    .await?;
+    
+    println!("Development database is up to date!");
+    Ok(())
+}
+```
+
+## Error Handling
+
+The function may return errors in these cases:
+- Database connection failure
+- Migration folder doesn't exist or is unreadable
+- Invalid database URL
+- Insufficient permissions to read migration files
+- Timeout waiting for database to be ready
+
+## Best Practices
+
+1. **Run before migrations**: Always check status before applying migrations to understand what will change
+
+2. **Use verbose mode in development**: Set `verbose: true` when developing to see detailed information
+
+3. **Use non-verbose mode in production**: Set `verbose: false` in automated deployments for cleaner logs
+
+4. **Verify after deployment**: Check status after deploying to confirm all migrations were applied
+
+5. **Monitor for missing files**: Watch for warnings about migrations in the database without corresponding files
+
+## See Also
+
+- [migrate_database](/api/migrate-database) - Apply pending migrations
+- [migate_down](/api/migrate-down) - Rollback migrations
+- [new_migration](/api/new-migration) - Create new migration files

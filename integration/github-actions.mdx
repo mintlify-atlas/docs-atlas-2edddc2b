@@ -1,0 +1,300 @@
+---
+title: GitHub Actions
+description: Integrate Geni into your GitHub Actions workflows
+---
+
+Geni provides an official GitHub Action that makes it easy to run database migrations in your workflows.
+
+## Quick Start
+
+Add Geni to your workflow file:
+
+```yaml
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - uses: emilpriver/geni@main
+        with:
+          database_url: ${{ secrets.DATABASE_URL }}
+```
+
+## Action Inputs
+
+The Geni GitHub Action accepts the following inputs:
+
+<ParamField path="database_url" type="string" required>
+  The URL for accessing your database. Should be stored in GitHub Secrets.
+  
+  **Examples:**
+  - PostgreSQL: `postgres://user:password@host:5432/database?sslmode=disable`
+  - MySQL: `mysql://root:password@localhost:3306/app`
+  - MariaDB: `mariadb://root:password@localhost:3307/app`
+  - SQLite: `sqlite://./database.sqlite`
+  - LibSQL/Turso: `https://my-db.turso.io`
+</ParamField>
+
+<ParamField path="database_token" type="string" default="">
+  Authentication token for LibSQL/Turso databases. Required only when authenticating to Turso. Store in GitHub Secrets.
+</ParamField>
+
+<ParamField path="migrations_folder" type="string" default="./migrations">
+  The path to where your migration files are located.
+</ParamField>
+
+<ParamField path="migrations_table" type="string" default="schema_migrations">
+  The name of the table used to track migration history.
+</ParamField>
+
+<ParamField path="wait_timeout" type="string" default="30">
+  Time in seconds to wait before attempting to connect to the database. Useful when the database needs time to boot.
+</ParamField>
+
+## Complete Examples
+
+### Basic PostgreSQL Migration
+
+```yaml
+name: Database Migration
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Run migrations
+        uses: emilpriver/geni@main
+        with:
+          database_url: ${{ secrets.DATABASE_URL }}
+          migrations_folder: "./migrations"
+          wait_timeout: "30"
+```
+
+### With Turso/LibSQL
+
+```yaml
+name: Turso Migration
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Migrate Turso database
+        uses: emilpriver/geni@main
+        with:
+          database_url: ${{ secrets.TURSO_DATABASE_URL }}
+          database_token: ${{ secrets.TURSO_AUTH_TOKEN }}
+          migrations_folder: "./migrations"
+```
+
+### Custom Migration Table
+
+```yaml
+name: Migration with Custom Table
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Run migrations
+        uses: emilpriver/geni@main
+        with:
+          database_url: ${{ secrets.DATABASE_URL }}
+          migrations_folder: "./db/migrations"
+          migrations_table: "custom_migrations"
+          wait_timeout: "60"
+```
+
+### Multi-Database Deployment
+
+Run migrations against multiple databases in parallel:
+
+```yaml
+name: Multi-Database Migration
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        environment: [staging, production]
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Run migrations for ${{ matrix.environment }}
+        uses: emilpriver/geni@main
+        with:
+          database_url: ${{ secrets[format('{0}_DATABASE_URL', matrix.environment)] }}
+          migrations_folder: "./migrations"
+```
+
+## How It Works
+
+The GitHub Action performs the following steps:
+
+<Steps>
+  <Step title="Download Geni Binary">
+    The action detects your runner's operating system (Linux, macOS, or Windows) and downloads the latest Geni release from GitHub.
+  </Step>
+  
+  <Step title="Make Executable">
+    On Unix-like systems, the binary is made executable with `chmod +x`.
+  </Step>
+  
+  <Step title="Set Environment Variables">
+    Your inputs are converted to environment variables:
+    - `DATABASE_URL`
+    - `DATABASE_TOKEN`
+    - `DATABASE_MIGRATIONS_FOLDER`
+    - `DATABASE_MIGRATIONS_TABLE`
+    - `DATABASE_WAIT_TIMEOUT`
+    - `DATABASE_NO_DUMP_SCHEMA` (set to `false`)
+  </Step>
+  
+  <Step title="Run Migration">
+    Executes `geni up` to apply all pending migrations.
+  </Step>
+</Steps>
+
+## Setting Up Secrets
+
+<Steps>
+  <Step title="Navigate to Repository Settings">
+    Go to your GitHub repository and click on **Settings**.
+  </Step>
+  
+  <Step title="Open Secrets Section">
+    Click **Secrets and variables** → **Actions**.
+  </Step>
+  
+  <Step title="Add Database URL">
+    Click **New repository secret** and add:
+    - **Name:** `DATABASE_URL`
+    - **Value:** Your database connection string
+  </Step>
+  
+  <Step title="Add Database Token (if needed)">
+    For Turso/LibSQL, add another secret:
+    - **Name:** `TURSO_AUTH_TOKEN`
+    - **Value:** Your authentication token
+  </Step>
+</Steps>
+
+## Testing Migrations
+
+Test migrations in pull requests before merging:
+
+```yaml
+name: Test Migrations
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  test-migrations:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:14
+        env:
+          POSTGRES_PASSWORD: postgres
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Test migrations
+        uses: emilpriver/geni@main
+        with:
+          database_url: "postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable"
+          migrations_folder: "./migrations"
+```
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Action fails to download binary">
+    Ensure your workflow has internet access and can reach GitHub releases. Check if your organization has any proxy or firewall restrictions.
+  </Accordion>
+  
+  <Accordion title="Connection timeout errors">
+    Increase the `wait_timeout` value, especially when using database services that need initialization time:
+    
+    ```yaml
+    wait_timeout: "60"
+    ```
+  </Accordion>
+  
+  <Accordion title="Migration files not found">
+    Verify the `migrations_folder` path is correct relative to your repository root. Ensure the checkout action runs before Geni:
+    
+    ```yaml
+    - uses: actions/checkout@v4
+    - uses: emilpriver/geni@main
+    ```
+  </Accordion>
+  
+  <Accordion title="Permission denied errors">
+    This typically occurs on self-hosted runners. The action handles making the binary executable, but ensure your runner has appropriate permissions.
+  </Accordion>
+</AccordionGroup>
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Use Specific Versions" icon="tag">
+    Instead of `@main`, pin to a specific version:
+    ```yaml
+    uses: emilpriver/geni@v1.2.3
+    ```
+  </Card>
+  
+  <Card title="Separate Environments" icon="diagram-project">
+    Use different secrets for staging and production databases.
+  </Card>
+  
+  <Card title="Run on Deployment" icon="rocket">
+    Trigger migrations only on successful deployments, not on every push.
+  </Card>
+  
+  <Card title="Enable Notifications" icon="bell">
+    Configure workflow notifications to alert on migration failures.
+  </Card>
+</CardGroup>

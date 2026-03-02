@@ -1,0 +1,290 @@
+---
+title: "MariaDB"
+description: "Use Geni with MariaDB databases"
+icon: "database"
+---
+
+Geni provides full support for MariaDB databases with native schema dumping and migration management. MariaDB is MySQL-compatible, so the implementation shares most features with the MySQL driver.
+
+## Connection URL Format
+
+MariaDB connections use the following URL format:
+
+```bash
+mariadb://user:password@host:port/database
+```
+
+<Note>
+  Use the `mariadb://` scheme specifically for MariaDB. While MariaDB is MySQL-compatible, Geni requires the correct URL scheme.
+</Note>
+
+### URL Components
+
+- **user** - MariaDB username
+- **password** - User password (optional)
+- **host** - Database server hostname or IP address
+- **port** - Database port (default: 3306)
+- **database** - Database name
+
+## Setup
+
+<Steps>
+<Step title="Set your database URL">
+  ```bash
+  export DATABASE_URL="mariadb://root:password@localhost:3307/myapp"
+  ```
+</Step>
+
+<Step title="Create the database">
+  ```bash
+  geni create
+  ```
+
+  This executes: `CREATE DATABASE IF NOT EXISTS myapp`
+</Step>
+
+<Step title="Create your first migration">
+  ```bash
+  geni new create_users_table
+  ```
+</Step>
+
+<Step title="Run migrations">
+  ```bash
+  geni up
+  ```
+</Step>
+</Steps>
+
+## Configuration Examples
+
+<Tabs>
+  <Tab title="Local Development">
+    ```bash
+    DATABASE_URL="mariadb://root@localhost:3307/development"
+    DATABASE_WAIT_TIMEOUT="30"
+    DATABASE_MIGRATIONS_FOLDER="./migrations"
+    ```
+  </Tab>
+
+  <Tab title="Production">
+    ```bash
+    DATABASE_URL="mariadb://appuser:securepass@prod-db.example.com:3306/production"
+    DATABASE_WAIT_TIMEOUT="60"
+    DATABASE_MIGRATIONS_TABLE="schema_migrations"
+    DATABASE_SCHEMA_FILE="schema.sql"
+    ```
+  </Tab>
+
+  <Tab title="Docker Compose">
+    ```yaml
+    services:
+      db:
+        image: mariadb:11
+        environment:
+          MARIADB_ROOT_PASSWORD: password
+          MARIADB_DATABASE: app
+        ports:
+          - "3307:3306"
+
+      migrations:
+        image: ghcr.io/emilpriver/geni:latest
+        environment:
+          DATABASE_URL: "mariadb://root:password@db:3306/app"
+        volumes:
+          - ./migrations:/migrations
+        depends_on:
+          - db
+    ```
+  </Tab>
+</Tabs>
+
+## Features
+
+### Transaction Support
+
+MariaDB migrations run in transactions by default. To disable transactions for a specific migration:
+
+```sql
+-- transaction:no
+ALTER TABLE users ADD INDEX idx_email (email);
+```
+
+### Schema Dumping
+
+Geni automatically dumps your MariaDB schema after each successful migration. The schema dump includes:
+
+- **Tables** - Table definitions with columns, data types, and defaults
+- **Views** - View definitions
+- **Constraints** - Primary keys, foreign keys, and unique constraints
+- **Indexes** - Index definitions
+- **Comments** - Table and column comments
+
+The schema is generated using MariaDB's `INFORMATION_SCHEMA` (source: `maria.rs:208-434`).
+
+<Note>
+  MariaDB uses the same schema dumping implementation as MySQL, querying the information schema directly without external tools.
+</Note>
+
+### Wait Timeout
+
+Geni can wait for MariaDB to be ready before running migrations:
+
+```bash
+DATABASE_WAIT_TIMEOUT="30" geni up
+```
+
+The driver will retry the connection every second until the timeout is reached (source: `maria.rs:34-54`).
+
+## Parameterized Queries
+
+MariaDB uses `?` placeholders for prepared statements (MySQL-compatible):
+
+```sql
+INSERT INTO schema_migrations (id) VALUES (?)
+DELETE FROM schema_migrations WHERE id = ?
+```
+
+## Database Operations
+
+### Create Database
+
+```bash
+geni create
+```
+
+Executes: `CREATE DATABASE IF NOT EXISTS {database_name}`
+
+### Drop Database
+
+```bash
+geni drop
+```
+
+Executes: `DROP DATABASE IF EXISTS {database_name}`
+
+<Warning>
+  Dropping a database is irreversible. All data will be permanently deleted.
+</Warning>
+
+### Check Status
+
+```bash
+geni status
+```
+
+Shows pending migrations by querying the `schema_migrations` table.
+
+## Limitations
+
+None. MariaDB is fully supported with all Geni features.
+
+## Examples
+
+### Basic Migration
+
+Create a table in `20240115120000_create_users.up.sql`:
+
+```sql
+CREATE TABLE users (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  email VARCHAR(255) NOT NULL UNIQUE,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_users_email ON users(email);
+```
+
+Rollback in `20240115120000_create_users.down.sql`:
+
+```sql
+DROP TABLE IF EXISTS users;
+```
+
+### MariaDB-Specific Features
+
+Using MariaDB features:
+
+```sql
+CREATE TABLE events (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  event_type VARCHAR(50) NOT NULL,
+  data JSON,
+  created_at TIMESTAMP(6) DEFAULT CURRENT_TIMESTAMP(6)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- MariaDB supports system-versioned tables
+CREATE TABLE audit_log (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  action VARCHAR(255),
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+) WITH SYSTEM VERSIONING;
+```
+
+## Troubleshooting
+
+### Connection Issues
+
+If you see connection errors, verify:
+
+- MariaDB is running and accessible
+- Hostname and port are correct (default: 3306)
+- User credentials are valid
+- Database exists (or use `geni create`)
+- User has appropriate permissions
+
+### Localhost Resolution
+
+Geni automatically converts `localhost` to `127.0.0.1` in MariaDB URLs (source: `maria.rs:56-59`). If you need to use a Unix socket instead, use the full path:
+
+```bash
+DATABASE_URL="mariadb://root@localhost/app?socket=/var/run/mysqld/mysqld.sock"
+```
+
+### Migration Table
+
+Geni creates a `schema_migrations` table to track applied migrations:
+
+```sql
+CREATE TABLE IF NOT EXISTS schema_migrations (
+  id VARCHAR(255) PRIMARY KEY
+)
+```
+
+You can customize the table name:
+
+```bash
+DATABASE_MIGRATIONS_TABLE="custom_migrations" geni up
+```
+
+## MariaDB vs MySQL
+
+While MariaDB is MySQL-compatible, there are some differences:
+
+### Similarities
+- Both use `?` for parameterized queries
+- Both support the same migration table structure
+- Schema dumping works identically using `INFORMATION_SCHEMA`
+- Both include `IF NOT EXISTS` / `IF EXISTS` in database operations
+
+### URL Scheme Requirement
+
+<CodeGroup>
+```bash MariaDB (Correct)
+mariadb://root:password@localhost:3306/app
+```
+
+```bash MySQL (Incorrect for MariaDB)
+mysql://root:password@localhost:3306/app
+```
+</CodeGroup>
+
+Always use `mariadb://` scheme for MariaDB databases, even though they are MySQL-compatible (source: `mod.rs:148-159`).
+
+## Best Practices
+
+- Use `mariadb://` URL scheme for clarity and correctness
+- Set appropriate `DATABASE_WAIT_TIMEOUT` for containerized environments
+- Use transactions by default (opt-out with `-- transaction:no` when needed)
+- Test migrations with rollbacks in development
+- Keep the schema file in version control for team collaboration

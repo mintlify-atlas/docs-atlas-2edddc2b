@@ -1,0 +1,326 @@
+---
+title: "SQLite"
+description: "Use Geni with SQLite databases"
+icon: "database"
+---
+
+Geni provides full support for SQLite databases with native schema dumping. SQLite is a file-based database that requires no server setup, making it ideal for development and embedded applications.
+
+## Connection URL Format
+
+SQLite connections can use either URL format or direct file paths:
+
+```bash
+sqlite://path/to/database.db
+sqlite3://path/to/database.db
+path/to/database.db
+```
+
+### Path Examples
+
+<CodeGroup>
+```bash Relative Path
+DATABASE_URL="sqlite://./database.sqlite"
+```
+
+```bash Absolute Path
+DATABASE_URL="sqlite:///var/data/app.db"
+```
+
+```bash Without Scheme
+DATABASE_URL="./database.db"
+```
+
+```bash In-Memory Database
+DATABASE_URL="sqlite://:memory:"
+```
+</CodeGroup>
+
+<Note>
+  Geni automatically creates the database file and parent directories if they don't exist (source: `sqlite.rs:32-38`).
+</Note>
+
+## Setup
+
+<Steps>
+<Step title="Set your database URL">
+  ```bash
+  export DATABASE_URL="sqlite://./database.sqlite"
+  ```
+</Step>
+
+<Step title="Create your first migration">
+  ```bash
+  geni new create_users_table
+  ```
+
+  The database file is created automatically on first migration.
+</Step>
+
+<Step title="Run migrations">
+  ```bash
+  geni up
+  ```
+</Step>
+</Steps>
+
+## Configuration Examples
+
+<Tabs>
+  <Tab title="Local Development">
+    ```bash
+    DATABASE_URL="sqlite://./dev.db"
+    DATABASE_MIGRATIONS_FOLDER="./migrations"
+    DATABASE_SCHEMA_FILE="schema.sql"
+    ```
+  </Tab>
+
+  <Tab title="Testing">
+    ```bash
+    # Use in-memory database for tests
+    DATABASE_URL="sqlite://:memory:"
+    DATABASE_NO_DUMP_SCHEMA="true"
+    ```
+  </Tab>
+
+  <Tab title="Production (Embedded)">
+    ```bash
+    DATABASE_URL="sqlite:///var/app/data/production.db"
+    DATABASE_MIGRATIONS_TABLE="schema_migrations"
+    DATABASE_MIGRATIONS_FOLDER="/app/migrations"
+    ```
+  </Tab>
+</Tabs>
+
+## Features
+
+### Transaction Support
+
+SQLite migrations run in transactions by default using `execute_transactional_batch`. To disable transactions:
+
+```sql
+-- transaction:no
+PRAGMA foreign_keys = ON;
+```
+
+<Note>
+  SQLite has different transaction behavior than server-based databases. Some operations like `PRAGMA` statements should run outside transactions.
+</Note>
+
+### Schema Dumping
+
+Geni automatically dumps your SQLite schema after each successful migration by querying `sqlite_master`:
+
+```sql
+SELECT sql FROM sqlite_master
+```
+
+The schema dump includes all database objects:
+- Tables
+- Indexes
+- Views
+- Triggers
+
+No external binaries required (source: `sqlite.rs:176-194`).
+
+### Automatic File Creation
+
+Unlike server-based databases, SQLite doesn't need a `create` command. Geni automatically:
+
+1. Creates parent directories if they don't exist
+2. Creates the database file if it doesn't exist
+3. Initializes the migrations table
+
+```rust
+// Automatically creates file and directories
+if File::open(path).is_err() {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    File::create(path)?;
+}
+```
+
+## Database Operations
+
+### Create Database
+
+Not needed for SQLite. The file is created automatically:
+
+```bash
+# This is a no-op for SQLite
+geni create
+```
+
+### Drop Database
+
+```bash
+geni drop
+```
+
+This deletes the SQLite database file (source: `sqlite.rs:143-150`).
+
+<Warning>
+  Dropping a SQLite database permanently deletes the file. Make sure you have backups.
+</Warning>
+
+### Check Status
+
+```bash
+geni status
+```
+
+## Limitations
+
+### No Remote Connections
+
+SQLite is file-based and doesn't support network connections. For remote SQLite-compatible databases, use [LibSQL](/databases/libsql) instead.
+
+### No Ready Check
+
+Since SQLite is file-based, there's no connection readiness check. The `ready()` function always returns `Ok(())` (source: `sqlite.rs:154-157`).
+
+### No Concurrent Writers
+
+SQLite supports multiple readers but only one writer at a time. For applications needing high write concurrency, consider PostgreSQL or MySQL.
+
+## Examples
+
+### Basic Migration
+
+Create a table in `20240115120000_create_users.up.sql`:
+
+```sql
+CREATE TABLE users (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  email TEXT NOT NULL UNIQUE,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_users_email ON users(email);
+```
+
+Rollback in `20240115120000_create_users.down.sql`:
+
+```sql
+DROP TABLE IF EXISTS users;
+```
+
+### SQLite-Specific Features
+
+Using SQLite features:
+
+```sql
+-- Enable foreign keys
+PRAGMA foreign_keys = ON;
+
+-- Create table with check constraint
+CREATE TABLE products (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  price REAL CHECK(price > 0),
+  metadata TEXT,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Create virtual table for full-text search
+CREATE VIRTUAL TABLE products_fts USING fts5(
+  name,
+  content='products',
+  content_rowid='id'
+);
+
+-- Create trigger
+CREATE TRIGGER products_fts_insert AFTER INSERT ON products BEGIN
+  INSERT INTO products_fts(rowid, name) VALUES (new.id, new.name);
+END;
+```
+
+### In-Memory Database for Testing
+
+For tests, use an in-memory database:
+
+```rust
+use geni;
+
+#[tokio::test]
+async fn test_migrations() {
+    geni::migrate_database(
+        "sqlite://:memory:".to_string(),
+        None,
+        "schema_migrations".to_string(),
+        "./migrations".to_string(),
+        "schema.sql".to_string(),
+        Some(30),
+        false, // Don't dump schema for in-memory DB
+    )
+    .await
+    .unwrap();
+}
+```
+
+## Troubleshooting
+
+### File Permissions
+
+If you see permission errors:
+
+- Check the database file has write permissions
+- Ensure the parent directory exists and is writable
+- Verify the process user has access to the file location
+
+### Locked Database
+
+If you see "database is locked" errors:
+
+- Close any other connections to the database file
+- Check for long-running transactions
+- Ensure no other processes are writing to the file
+- Consider using WAL mode for better concurrency:
+
+```sql
+PRAGMA journal_mode = WAL;
+```
+
+### Migration Table
+
+Geni creates a `schema_migrations` table to track applied migrations:
+
+```sql
+CREATE TABLE IF NOT EXISTS schema_migrations (
+  id VARCHAR(255) PRIMARY KEY
+);
+```
+
+You can customize the table name:
+
+```bash
+DATABASE_MIGRATIONS_TABLE="custom_migrations" geni up
+```
+
+## Best Practices
+
+- Use absolute paths in production to avoid ambiguity
+- Enable foreign keys with `PRAGMA foreign_keys = ON` in migrations
+- Use WAL mode for better concurrency: `PRAGMA journal_mode = WAL`
+- Keep database files in version control for development (but not production data)
+- Use in-memory databases for fast tests
+- Set appropriate file permissions for security
+
+## When to Use SQLite
+
+**Good for:**
+- Development and testing
+- Embedded applications
+- Mobile apps
+- Desktop applications
+- Low to medium traffic websites
+- Read-heavy workloads
+
+**Not ideal for:**
+- High write concurrency
+- Distributed systems
+- Network-based applications requiring remote access
+- Applications requiring user permissions at database level
+
+For remote SQLite-compatible databases, see [LibSQL](/databases/libsql).
