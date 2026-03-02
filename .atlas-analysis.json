@@ -1,0 +1,123 @@
+{
+  "projectType": "cli-tool",
+  "projectName": "Geni",
+  "projectDescription": "Standalone database migration tool for Postgres, MariaDB, MySQL, SQLite, and LibSQL(Turso).",
+  "theme": "aspen",
+  "primaryColor": "#0EA5E9",
+  "lightColor": "#38BDF8",
+  "darkColor": "#0284C7",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "installation",
+              "quickstart"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "concepts/migrations",
+              "concepts/transactions",
+              "concepts/schema-dumping"
+            ]
+          },
+          {
+            "group": "Commands",
+            "pages": [
+              "commands/new",
+              "commands/up",
+              "commands/down",
+              "commands/status",
+              "commands/create",
+              "commands/drop",
+              "commands/dump"
+            ]
+          },
+          {
+            "group": "Configuration",
+            "pages": [
+              "configuration/environment-variables",
+              "configuration/database-urls"
+            ]
+          },
+          {
+            "group": "Database Support",
+            "pages": [
+              "databases/postgres",
+              "databases/mysql",
+              "databases/mariadb",
+              "databases/sqlite",
+              "databases/libsql"
+            ]
+          },
+          {
+            "group": "Integration",
+            "pages": [
+              "integration/ci-cd",
+              "integration/github-actions",
+              "integration/docker",
+              "integration/library-usage"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/troubleshooting",
+              "guides/best-practices",
+              "guides/migration-workflow"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Library API",
+            "pages": [
+              "api/migrate-database",
+              "api/migrate-down",
+              "api/create-database",
+              "api/drop-database",
+              "api/new-migration",
+              "api/status-migrations",
+              "api/dump-database"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Support for Postgres, MariaDB, MySQL, SQLite, and LibSQL(Turso)",
+    "Timestamp-based migration files with up/down support",
+    "Transaction-based migration execution",
+    "Schema dumping for version control",
+    "Collaborative migration management for teams",
+    "CLI and library usage modes",
+    "GitHub Actions integration",
+    "Docker support"
+  ],
+  "publicApiSurface": [
+    "geni new <name>",
+    "geni up",
+    "geni down [-a <amount>]",
+    "geni status [-v]",
+    "geni create",
+    "geni drop",
+    "geni dump",
+    "migrate_database()",
+    "migate_down()",
+    "create_database()",
+    "drop_database()",
+    "new_migration()",
+    "status_migrations()",
+    "dump_database()"
+  ]
+}
