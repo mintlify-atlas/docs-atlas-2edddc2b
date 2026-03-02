@@ -68,10 +68,10 @@ DATABASE_URL="<connection-string>" geni up
 
 ```bash
 DATABASE_URL="postgres://postgres:password@localhost:5432/app?sslmode=disable" geni up
-```
+```bash
 
 **Output:**
-```
+```text
 Running migration 1709395200
 Running migration 1709395245
 Running migration 1709395300
@@ -191,6 +191,16 @@ CREATE TABLE schema_migrations (
 
 Each row contains a migration timestamp:
 
+```text
+version
+--------------
+1709395200
+1709395245
+1709395300
+```
+
+Each row contains a migration timestamp:
+
 ```
 version
 --------------
@@ -203,7 +213,7 @@ version
 
 ### No Migrations Found
 
-```
+```text
 Couldn't read migration folder: No such file or directory
 ```
 
@@ -211,7 +221,7 @@ Couldn't read migration folder: No such file or directory
 
 ### Connection Failed
 
-```
+```text
 No database url found, please set the DATABASE_URL environment variable
 ```
 
@@ -219,7 +229,7 @@ No database url found, please set the DATABASE_URL environment variable
 
 ### Migration Failed
 
-```
+```text
 Running migration 1709395300
 Error: syntax error at or near "TABEL"
 ```

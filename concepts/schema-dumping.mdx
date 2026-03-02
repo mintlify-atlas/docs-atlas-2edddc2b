@@ -68,7 +68,7 @@ geni up
 
 By default, the schema file is created in your migrations folder:
 
-```
+```text
 migrations/
 ├── 1234567890_create_users.up.sql
 ├── 1234567890_create_users.down.sql
@@ -261,7 +261,7 @@ brew install mariadb
 
 From the README:
 
-```markdown
+```text
 Dumping needs another binaries to work:
 - Postgres: Works without need for another binary. Uses SQL code to get schema
 - MySQL: `mysqldump` need to be installed(already installed in docker)
@@ -537,7 +537,7 @@ geni up         # Re-apply main branch migrations (schema.sql updated)
 
 If schema dumping fails, migrations still succeed:
 
-```
+```text
 [ERROR] Skipping dumping database schema: mysqldump command not found
 ```
 

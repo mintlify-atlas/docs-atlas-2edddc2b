@@ -80,7 +80,7 @@ DATABASE_URL="postgres://postgres:password@localhost:5432/myapp_dev" geni drop
 ```
 
 **Output:**
-```
+```text
 Success
 ```
 
@@ -244,7 +244,7 @@ docker run --rm -it --network=host \
 
 ### Database Doesn't Exist
 
-```
+```text
 Error: database "myapp" does not exist
 ```
 
@@ -252,7 +252,7 @@ Error: database "myapp" does not exist
 
 ### Database In Use
 
-```
+```text
 Error: database "myapp" is being accessed by other users
 ```
 
@@ -276,7 +276,7 @@ mysqladmin -u root -p kill [process_id]
 
 ### Permission Denied
 
-```
+```text
 Error: must be owner of database myapp
 ```
 
@@ -284,7 +284,7 @@ Error: must be owner of database myapp
 
 ### File Permission Error (SQLite)
 
-```
+```text
 Error: Permission denied (os error 13)
 ```
 

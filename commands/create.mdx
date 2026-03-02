@@ -80,7 +80,7 @@ DATABASE_URL="postgres://postgres:password@localhost:5432/myapp" geni create
 ```
 
 **Output:**
-```
+```text
 Success
 ```
 
@@ -252,7 +252,7 @@ services:
 
 ### Database Already Exists
 
-```
+```text
 Error: database "myapp" already exists
 ```
 
@@ -260,7 +260,7 @@ Error: database "myapp" already exists
 
 ### Connection Failed
 
-```
+```text
 No database url found, please set the DATABASE_URL environment variable
 ```
 
@@ -268,7 +268,7 @@ No database url found, please set the DATABASE_URL environment variable
 
 ### Permission Denied
 
-```
+```text
 Error: permission denied to create database
 ```
 
@@ -284,7 +284,7 @@ GRANT ALL PRIVILEGES ON *.* TO 'myuser'@'localhost';
 
 ### Server Not Running
 
-```
+```text
 Error: could not connect to server
 ```
 

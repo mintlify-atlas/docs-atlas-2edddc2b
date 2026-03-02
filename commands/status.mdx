@@ -84,14 +84,14 @@ DATABASE_URL="postgres://postgres:password@localhost:5432/app?sslmode=disable" g
 ```
 
 **Output (with pending migrations):**
-```
+```text
 Pending 1709395200
 Pending 1709395245
 Pending 1709395300
 ```
 
 **Output (no pending migrations):**
-```
+```text
 (no output - all migrations are applied)
 ```
 
@@ -104,7 +104,7 @@ DATABASE_URL="postgres://localhost/app" geni status --verbose
 ```
 
 **Output:**
-```
+```text
 Pending migration 1709395200: 
  CREATE TABLE users (
     id SERIAL PRIMARY KEY,
@@ -154,7 +154,7 @@ geni status
 
 Each line starting with "Pending" indicates a migration that exists in your migrations folder but hasn't been applied to the database:
 
-```
+```text
 Pending 1709395200
 Pending 1709395245
 ```
@@ -178,7 +178,7 @@ With `--verbose`, you see:
 1. **Migration identifier**: The timestamp/name
 2. **SQL content**: The complete contents of the `.up.sql` file
 
-```
+```text
 Pending migration 1709395200:
  CREATE TABLE users (
      id SERIAL PRIMARY KEY,
@@ -330,7 +330,7 @@ check-migrations:
 
 ### No Migrations Folder
 
-```
+```text
 Couldn't read migration folder: No such file or directory
 ```
 
@@ -338,7 +338,7 @@ Couldn't read migration folder: No such file or directory
 
 ### Connection Failed
 
-```
+```text
 No database url found, please set the DATABASE_URL environment variable
 ```
 
